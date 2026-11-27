@@ -4,7 +4,7 @@ name: RavTube upstream sync
 # - Clean merge  -> push to master and build a release (the app then updates itself).
 # - Conflicts    -> push branch upstream-sync/<version>-<sha> with the conflict markers
 #                   committed and open a PR, to be resolved by hand (or by Claude).
-# Upstream's own .github changes are never taken over: their workflows are disabled here and
+# Upstream's .github and README.md changes are never taken over: their workflows are disabled here and
 # the Actions token is not allowed to push workflow file changes anyway.
 
 on:
@@ -61,8 +61,8 @@ jobs:
           fi
 
           git merge --no-ff --no-commit upstream/master || true
-          # Keep RavTube's own .github as is (also resolves any conflicts in there)
-          git restore --source=HEAD --staged --worktree -- .github
+          # Keep RavTube's own .github and README.md as is (also resolves any conflicts in there)
+          git restore --source=HEAD --staged --worktree -- .github README.md
 
           conflicts=$(git diff --name-only --diff-filter=U)
           if [ -z "$conflicts" ]; then
