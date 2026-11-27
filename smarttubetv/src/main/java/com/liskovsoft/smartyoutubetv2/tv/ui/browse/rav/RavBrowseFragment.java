@@ -461,7 +461,11 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
 
         ImageView icon = new ImageView(ctx);
         icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        if (section.getResId() > 0) {
+        if (section.getId() == MediaGroup.TYPE_MY_VIDEOS) {
+            // upstream gives My videos the same icon as Playlists
+            icon.setImageResource(R.drawable.rav_ic_my_videos);
+            icon.setColorFilter(Color.WHITE);
+        } else if (section.getResId() > 0) {
             icon.setImageResource(section.getResId());
             icon.setColorFilter(Color.WHITE);
         } else if (section.getIconUrl() != null) {
