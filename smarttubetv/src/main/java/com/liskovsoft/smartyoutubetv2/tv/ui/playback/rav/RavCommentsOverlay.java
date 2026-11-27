@@ -404,6 +404,41 @@ public class RavCommentsOverlay extends FrameLayout {
         return card;
     }
 
+    /** Set while moving up, so a long comment shows its end first. */
+    private boolean mFromBelow;
+
+    /**
+     * Scrolls inside the focused comment when it doesn't fit: a third of the view per press.
+     * @return true when it scrolled (focus stays on the comment)
+     */
+    private boolean scrollWithinCard(Page page, boolean down) {
+        if (page.focus >= page.items.size() || page.focus >= mList.getChildCount()) {
+            return false;
+        }
+        View card = mList.getChildAt(page.focus);
+        int view = mScroll.getHeight();
+        if (view <= 0) {
+            return false;
+        }
+        int y = mGlide.getTarget();
+        int fade = dp(36); // the faded edges don't count as readable
+        int step = Math.max(dp(40), view / 3);
+        if (down) {
+            int end = card.getBottom() - view + fade;
+            if (end > y + dp(4)) {
+                mGlide.to(Math.min(y + step, end));
+                return true;
+            }
+        } else {
+            int start = Math.max(0, card.getTop() - mList.getPaddingTop() - dp(30));
+            if (start < y - dp(4)) {
+                mGlide.to(Math.max(y - step, start));
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void renderFocus() {
         Page page = page();
         if (page == null) {
@@ -419,7 +454,13 @@ public class RavCommentsOverlay extends FrameLayout {
         }
         if (page.focus < count) {
             View focused = mList.getChildAt(page.focus);
-            mGlide.to(Math.max(0, focused.getTop() - mList.getPaddingTop() - dp(30))); // the card above peeks in, faded
+            int top = Math.max(0, focused.getTop() - mList.getPaddingTop() - dp(30)); // the card above peeks in, faded
+            int view = mScroll.getHeight();
+            if (mFromBelow && view > 0 && focused.getHeight() > view - dp(60)) {
+                // coming up into a long comment: show its end first
+                top = Math.max(top, focused.getBottom() - view + dp(36));
+            }
+            mGlide.to(top);
         } else {
             mGlide.to(0);
         }
@@ -455,6 +496,10 @@ public class RavCommentsOverlay extends FrameLayout {
         }
         switch (code) {
             case KeyEvent.KEYCODE_DPAD_DOWN:
+                // a long comment scrolls a step at a time until its end is in view
+                if (scrollWithinCard(page, true)) {
+                    return true;
+                }
                 if (page.focus < page.items.size() - 1) {
                     page.focus++;
                     renderFocus();
@@ -462,9 +507,14 @@ public class RavCommentsOverlay extends FrameLayout {
                 loadMoreIfNeeded(page);
                 return true;
             case KeyEvent.KEYCODE_DPAD_UP:
+                if (scrollWithinCard(page, false)) {
+                    return true;
+                }
                 if (page.focus > 0) {
                     page.focus--;
+                    mFromBelow = true;
                     renderFocus();
+                    mFromBelow = false;
                 }
                 return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:
