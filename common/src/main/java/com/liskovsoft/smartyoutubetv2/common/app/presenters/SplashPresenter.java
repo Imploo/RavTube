@@ -261,6 +261,9 @@ public class SplashPresenter extends BasePresenter<SplashView> {
 
             if (videoId != null) {
                 long timeMs = IntentExtractor.extractVideoTimeMs(intent);
+                if (IntentExtractor.isContinueWatchingIntent(intent)) {
+                    timeMs = continueWatchingTimeMs(videoId, timeMs);
+                }
                 PlaybackPresenter playbackPresenter = PlaybackPresenter.instance(getContext());
 
                 // Something is playing (or paused) in the player: queue it instead of replacing it
@@ -361,6 +364,20 @@ public class SplashPresenter extends BasePresenter<SplashView> {
                     () -> getView().finishView() // critical part, fix black screen on app exit
             );
         }
+    }
+
+    /**
+     * RavTube: Continue watching on the home screen carries the position from the YouTube history (whole percents).
+     * When this TV has its own position for the video at about the same spot, that one is more precise: let the
+     * player restore it. Otherwise (watched further on another device) start at the history position.
+     */
+    private long continueWatchingTimeMs(String videoId, long historyTimeMs) {
+        VideoStateService.State state = VideoStateService.instance(getContext()).getByVideoId(videoId);
+        if (state == null || state.positionMs <= 0 || historyTimeMs <= 0) {
+            return historyTimeMs;
+        }
+        long margin = state.durationMs > 0 ? state.durationMs * 3 / 100 : 60_000;
+        return Math.abs(state.positionMs - historyTimeMs) <= margin ? -1 : historyTimeMs;
     }
 
     /**

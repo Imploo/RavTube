@@ -42,6 +42,8 @@ import java.util.Set;
 public class RavContinueWatching {
     private static final String TAG = RavContinueWatching.class.getSimpleName();
     private static final String PREFS = "ravtube_continue_watching";
+    /** Same as IntentExtractor.CONTINUE_WATCHING_INTENT (common can't be reached from here). */
+    private static final String CONTINUE_EXTRA = "rav_continue_watching";
     private static final long RETENTION_MS = 7L * 24 * 60 * 60 * 1000;
     private static final int FINISHED_PERCENT = 90;
     private static final long MIN_DURATION_MS = 70_000; // no Shorts
@@ -216,7 +218,14 @@ public class RavContinueWatching {
         long duration = video.getDurationMs();
         String poster = !TextUtils.isEmpty(video.getCardImageUrl()) ? video.getCardImageUrl()
                 : "https://i.ytimg.com/vi/" + video.getVideoId() + "/hqdefault.jpg";
-        Intent intent = AppUtil.getInstance(context).createAppIntent("https://www.youtube.com/watch?v=" + video.getVideoId());
+        long positionMs = duration * video.getPercentWatched() / 100;
+        // start where you left off: t= is the position from the history (also videos watched on the phone);
+        // the extra lets RavTube prefer its own, more precise position when it's about the same
+        Intent intent = AppUtil.getInstance(context).createAppIntent("https://www.youtube.com/watch?v=" + video.getVideoId()
+                + "&t=" + (positionMs / 1000) + "s");
+        if (intent != null) {
+            intent.putExtra(CONTINUE_EXTRA, true);
+        }
 
         ContentValues values = new ContentValues();
         values.put(TvContract.WatchNextPrograms.COLUMN_WATCH_NEXT_TYPE, TvContract.WatchNextPrograms.WATCH_NEXT_TYPE_CONTINUE);
@@ -228,7 +237,7 @@ public class RavContinueWatching {
         values.put(TvContract.WatchNextPrograms.COLUMN_POSTER_ART_URI, poster);
         values.put(TvContract.WatchNextPrograms.COLUMN_POSTER_ART_ASPECT_RATIO, TvContract.WatchNextPrograms.ASPECT_RATIO_16_9);
         values.put(TvContract.WatchNextPrograms.COLUMN_DURATION_MILLIS, (int) duration);
-        values.put(TvContract.WatchNextPrograms.COLUMN_LAST_PLAYBACK_POSITION_MILLIS, (int) (duration * video.getPercentWatched() / 100));
+        values.put(TvContract.WatchNextPrograms.COLUMN_LAST_PLAYBACK_POSITION_MILLIS, (int) positionMs);
         values.put(TvContract.WatchNextPrograms.COLUMN_LAST_ENGAGEMENT_TIME_UTC_MILLIS, item.engagedAt);
         values.put(TvContract.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID, video.getVideoId());
         values.put(TvContract.WatchNextPrograms.COLUMN_CONTENT_ID, video.getVideoId());

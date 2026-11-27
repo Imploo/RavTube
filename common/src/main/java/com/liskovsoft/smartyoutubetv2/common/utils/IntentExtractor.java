@@ -16,6 +16,8 @@ public class IntentExtractor {
     public static final String RESTART_INTENT = "RESTART_INTENT";
     public static final String INCOGNITO_INTENT = "INCOGNITO_INTENT";
     public static final String ADD_TO_QUEUE_INTENT = "add_to_queue";
+    /** RavTube: a "Continue watching" program on the home screen (t= is the position from the history) */
+    public static final String CONTINUE_WATCHING_INTENT = "rav_continue_watching";
     private static final String TAG = IntentExtractor.class.getSimpleName();
     /**
      * Browser: https://www.youtube.com/results?search_query=twice<br/>
@@ -234,6 +236,10 @@ public class IntentExtractor {
     public static boolean hasFinishOnEndedFlag(Intent intent) {
         return intent != null && (intent.getBooleanExtra("finish_on_ended", false)
                 || "true".equals(intent.getStringExtra("finish_on_ended")));
+    }
+
+    public static boolean isContinueWatchingIntent(Intent intent) {
+        return intent != null && intent.getBooleanExtra(CONTINUE_WATCHING_INTENT, false);
     }
 
     public static long extractVideoTimeMs(Intent intent) {
