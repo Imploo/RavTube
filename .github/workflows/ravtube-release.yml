@@ -1,0 +1,118 @@
+name: RavTube release
+
+# Builds the stable flavor, signs it and publishes a GitHub release with the APKs and the
+# update manifest (ravtube_stable.json) that the app's built-in updater reads from
+# https://github.com/Imploo/RavTube/releases/latest/download/ravtube_stable.json
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ravtube-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      APK_DIR: smarttubetv/build/outputs/apk/ststable/release
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: master
+          fetch-depth: 0 # versionCode is derived from the commit count
+          submodules: recursive
+
+      - name: Skip if this commit is already released
+        id: check
+        run: |
+          count=$(git rev-list --count HEAD)
+          if [ -n "$(git tag -l "v*-r$count")" ]; then
+            echo "Commit $count is already released as $(git tag -l "v*-r$count"), nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up JDK 17
+        if: steps.check.outputs.skip == 'false'
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Configure signing
+        if: steps.check.outputs.skip == 'false'
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::error::SIGNING_KEY secret missing; an unsigned APK can't update the installed app."
+            exit 1
+          fi
+          echo "$SIGNING_KEY" | base64 --decode > "$RUNNER_TEMP/key.jks"
+          {
+            echo "storeFile=$RUNNER_TEMP/key.jks"
+            echo "storePassword=$KEY_STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore.properties
+
+      - name: Build
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleStstableRelease
+
+      - name: Create release
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          meta="$APK_DIR/output-metadata.json"
+          code=$(jq -r '.elements[0].versionCode' "$meta")
+          name=$(jq -r '.elements[0].versionName' "$meta")
+          tag="v$name"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/$tag"
+          apk() { echo "$base/RavTube_stable_${name}_$1.apk"; }
+
+          # Changelog: commits since the previous release (or the last few for the first one)
+          prev=$(git describe --tags --abbrev=0 --match 'v*-r*' 2>/dev/null || true)
+          if [ -n "$prev" ]; then
+            git log --no-merges --format=%s "$prev..HEAD" | head -n 30 > changelog.txt
+          else
+            git log --no-merges --format=%s -n 10 > changelog.txt
+          fi
+
+          jq -n \
+            --arg name "$name" --argjson code "$code" \
+            --arg universal "$(apk universal)" --arg v7a "$(apk armeabi-v7a)" \
+            --arg v8a "$(apk arm64-v8a)" --arg x86 "$(apk x86)" \
+            --rawfile log changelog.txt \
+            '{
+              package: {
+                downloadUrl: $universal,
+                downloadUrlList: [$universal],
+                "downloadUrlList_armeabi-v7a": [$v7a],
+                "downloadUrlList_arm64-v8a": [$v8a],
+                "downloadUrlList_x86": [$x86]
+              },
+              ($name): { versionCode: $code, changelog: ($log | split("\n") | map(select(length > 0))) }
+            }' > "$APK_DIR/ravtube_stable.json"
+          cat "$APK_DIR/ravtube_stable.json"
+
+          { echo "versionCode $code"; echo; sed 's/^/- /' changelog.txt; } > notes.md
+          gh release create "$tag" "$APK_DIR"/*.apk "$APK_DIR/ravtube_stable.json" \
+            --target "$(git rev-parse HEAD)" --title "RavTube $name" --notes-file notes.md --latest

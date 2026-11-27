@@ -255,3 +255,6 @@ dependencies {
 
     implementation 'androidx.work:work-runtime:' + workVersion
 }
+
+// RavTube: own versionCode/versionName (see ravtube.gradle)
+apply from: "ravtube.gradle"

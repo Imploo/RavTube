@@ -1,0 +1,23 @@
+// RavTube versioning, kept out of build.gradle so upstream version bumps never conflict.
+//
+// The in-app updater compares versionCode only. Upstream only bumps it on their own releases,
+// so RavTube derives it from the commit count instead: every commit on master (own work or an
+// upstream merge) gives a higher number. Local builds and CI builds of the same commit match.
+//   versionCode = 10,000,000 + commit count   (above every upstream code, e.g. 2475)
+//   versionName = <upstream versionName>-r<commit count>, e.g. 32.85-r1180
+
+def ravCommitCount = 0
+try {
+    def proc = ['git', 'rev-list', '--count', 'HEAD'].execute(null, rootProject.projectDir)
+    def out = proc.text.trim()
+    if (proc.waitFor() == 0 && out.isInteger()) {
+        ravCommitCount = out.toInteger()
+    }
+} catch (ignored) {
+    // no git available: keep upstream's numbers
+}
+
+if (ravCommitCount > 0) {
+    android.defaultConfig.versionCode = 10000000 + ravCommitCount
+    android.defaultConfig.versionName = android.defaultConfig.versionName + "-r" + ravCommitCount
+}

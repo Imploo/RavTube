@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string-array name="update_urls">
-        <!-- RavTube: updates from SmartTube disabled -->
+        <!-- RavTube: updates from RavTube's own GitHub releases (see .github/workflows/ravtube-release.yml) -->
         <!--<item>https://github.com/yuliskov/SmartTubeNext/releases/download/latest/smarttube_stable2.json</item>-->
+        <item>https://github.com/Imploo/RavTube/releases/latest/download/ravtube_stable.json</item>
     </string-array>
 </resources>

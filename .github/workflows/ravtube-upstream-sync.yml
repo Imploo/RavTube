@@ -1,0 +1,102 @@
+name: RavTube upstream sync
+
+# Daily: merge yuliskov/SmartTube master into RavTube master.
+# - Clean merge  -> push to master and build a release (the app then updates itself).
+# - Conflicts    -> push branch upstream-sync/<version>-<sha> with the conflict markers
+#                   committed and open a PR, to be resolved by hand (or by Claude).
+# Upstream's own .github changes are never taken over: their workflows are disabled here and
+# the Actions token is not allowed to push workflow file changes anyway.
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ravtube-upstream-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    outputs:
+      merged: ${{ steps.merge.outputs.merged }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Merge upstream
+        id: merge
+        run: |
+          set -euo pipefail
+          echo "merged=false" >> "$GITHUB_OUTPUT"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/yuliskov/SmartTube.git
+          git fetch --no-tags upstream master
+
+          if git merge-base --is-ancestor upstream/master HEAD; then
+            echo "Already up to date with upstream."
+            exit 0
+          fi
+
+          up_sha=$(git rev-parse --short upstream/master)
+          up_ver=$(git show upstream/master:smarttubetv/build.gradle | sed -n 's/.*versionName "\(.*\)".*/\1/p' | head -n 1)
+          branch="upstream-sync/${up_ver}-${up_sha}"
+
+          open=$(gh pr list --state open --json headRefName -q '[.[] | select(.headRefName | startswith("upstream-sync/"))] | length')
+          if [ "$open" != "0" ]; then
+            echo "::warning::An upstream-sync PR is still open; resolve and merge that one first."
+            exit 0
+          fi
+
+          git merge --no-ff --no-commit upstream/master || true
+          # Keep RavTube's own .github as is (also resolves any conflicts in there)
+          git restore --source=HEAD --staged --worktree -- .github
+
+          conflicts=$(git diff --name-only --diff-filter=U)
+          if [ -z "$conflicts" ]; then
+            git commit -q -m "Merge upstream SmartTube $up_ver ($up_sha)"
+            git push origin HEAD:master
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+            echo "Merged upstream SmartTube $up_ver ($up_sha)."
+            exit 0
+          fi
+
+          echo "Conflicts in:"; echo "$conflicts"
+          git add -A
+          git commit -q -m "Merge upstream SmartTube $up_ver ($up_sha) [CONFLICTS UNRESOLVED]"
+          git push origin "HEAD:refs/heads/$branch"
+
+          {
+            echo "Automatic merge of upstream SmartTube **$up_ver** (\`$up_sha\`) into RavTube failed."
+            echo
+            echo "This branch contains the merge commit **with the conflict markers committed**. Resolve them on this branch, then merge the PR. Merging into master builds a new release automatically."
+            echo
+            echo "Conflicting files:"
+            echo "$conflicts" | sed 's/^/- `/; s/$/`/'
+            echo
+            echo "To fix locally:"
+            echo '```sh'
+            echo "git fetch origin && git checkout $branch"
+            echo "git grep -n '^<<<<<<< '"
+            echo '```'
+          } > pr.md
+          gh pr create --base master --head "$branch" \
+            --title "Upstream SmartTube $up_ver: merge conflicts to resolve" --body-file pr.md
+
+  release:
+    needs: sync
+    if: needs.sync.outputs.merged == 'true'
+    uses: ./.github/workflows/ravtube-release.yml
+    secrets: inherit
