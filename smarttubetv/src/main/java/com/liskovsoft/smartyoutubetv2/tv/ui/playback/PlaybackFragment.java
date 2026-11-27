@@ -89,6 +89,7 @@ import com.liskovsoft.smartyoutubetv2.tv.ui.widgets.time.EndingTimeView;
 import com.liskovsoft.googlecommon.common.helpers.YouTubeHelper;
 
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -97,7 +98,10 @@ import java.util.Map;
  * Plays selected video, loads playlist and related videos, and delegates playback to
  * {@link VideoPlayerGlue}.
  */
-public class PlaybackFragment extends SeekModePlaybackFragment implements PlaybackView {
+import com.liskovsoft.smartyoutubetv2.tv.ui.playback.rav.RavPlayerOverlay;
+import com.liskovsoft.smartyoutubetv2.tv.ui.playback.actions.ClosedCaptioningAction;
+
+public class PlaybackFragment extends SeekModePlaybackFragment implements PlaybackView, com.liskovsoft.smartyoutubetv2.common.app.views.CommentsOverlayView {
     private static final String TAG = PlaybackFragment.class.getSimpleName();
     private static final String SELECTED_VIDEO_ID = "SelectedVideoId";
     private static final int UPDATE_DELAY_MS = 100;
@@ -125,6 +129,10 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     private Boolean mIsControlsShownPreviously;
     private Video mPendingFocus;
     private String mSelectedVideoId;
+    /** RavTube controls, drawn over the video instead of the Leanback controls. */
+    private RavPlayerOverlay mRav;
+    /** RavTube comments: glass cards over the video instead of the dialog. */
+    private com.liskovsoft.smartyoutubetv2.tv.ui.playback.rav.RavCommentsOverlay mComments;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -171,6 +179,15 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         // We should use internal progress manager because it's used in many places like Exo engine etc.
         // ProgressBar.setRootView already called at this moment.
         ProgressBarManager.setup(getProgressBarManager(), (ViewGroup) root);
+
+        if (root instanceof ViewGroup && getContext() != null) {
+            mRav = new RavPlayerOverlay(getContext(), new RavHost());
+            ((ViewGroup) root).addView(mRav, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            mComments = new com.liskovsoft.smartyoutubetv2.tv.ui.playback.rav.RavCommentsOverlay(getContext());
+            ((ViewGroup) root).addView(mComments, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            // the Leanback controls never show; ours take their place
+            root.post(() -> super.hideControlsOverlay(false));
+        }
 
         return root;
     }
@@ -675,6 +692,17 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
                     return false;
                 }
 
+                if (mRav != null) {
+                    // RavTube: the remote's play and pause buttons may arrive here through the media session.
+                    // Each press toggles (play while playing pauses, and the other way round), shows only the
+                    // play / pause mark for 2 s and never the controls.
+                    boolean target = playWhenReady == player.getPlayWhenReady() ? !playWhenReady : playWhenReady;
+                    Log.d(TAG, "Media session play/pause: " + playWhenReady + " -> " + target);
+                    mRavQuietUntilMs = System.currentTimeMillis() + 3000;
+                    mRav.showPlayState(target);
+                    return super.dispatchSetPlayWhenReady(player, target);
+                }
+
                 return super.dispatchSetPlayWhenReady(player, playWhenReady);
             }
         });
@@ -844,6 +872,10 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
             mPlayerGlue.setSubtitle(video.getSecondTitleFull() != null ? createSubtitle(video) : "...");
             mPlayerGlue.setVideo(video);
         }
+
+        if (mRav != null && video != null) {
+            mRav.setVideo(video, video.getSecondTitleFull() != null ? createSubtitle(video) : null);
+        }
     }
 
     @Override
@@ -898,6 +930,10 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     @Override
     public void setTitle(String title) {
         mPlayerGlue.setTitle(title);
+
+        if (mRav != null) {
+            mRav.setTitle(title);
+        }
     }
 
     @Override
@@ -1209,21 +1245,46 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
     @Override
     public boolean isOverlayShown() {
+        if (mRav != null) {
+            return mRav.isShownOverlay();
+        }
         return isControlsOverlayVisible();
     }
 
     @Override
     public boolean isSuggestionsShown() {
+        if (mRav != null) {
+            return mRav.isUpNextShown();
+        }
         return isControlsOverlayVisible() && getPlayerRowIndex() != 0;
     }
 
     @Override
     public boolean isControlsShown() {
+        if (mRav != null) {
+            return mRav.isControlsShown();
+        }
         return isControlsOverlayVisible() && getPlayerRowIndex() == 0;
     }
 
     @Override
     public void showControlsOverlay(boolean runAnimation) {
+        if (mRav != null) {
+            super.hideControlsOverlay(false);
+            if (!mRavExplicitShow) {
+                Log.d(TAG, "RavTube: ignored a Leanback request to show the controls");
+                return; // Leanback shows its controls on play state changes; RavTube only shows them on request
+            }
+            if (System.currentTimeMillis() < mRavQuietUntilMs) {
+                return; // paused with OK: no controls
+            }
+            if (!mRav.isShownOverlay()) {
+                Log.d(TAG, "RavTube: controls shown by the app", new Throwable());
+            }
+            mRav.showControls();
+            return; // onRavShown() is called by the overlay
+        }
+
         super.showControlsOverlay(mIsUIAnimationsEnabled);
 
         // Do throttle. Called so many times. Rely on boxing because initial state is unknown.
@@ -1246,6 +1307,15 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
     @Override
     public void hideControlsOverlay(boolean runAnimation) {
+        if (mRav != null) {
+            super.hideControlsOverlay(false);
+            if (mRav.isShownOverlay() && mRav.getIdleMs() < RavPlayerOverlay.AUTO_HIDE_MS) {
+                return; // the user is using the controls; they hide themselves after 5 s without input
+            }
+            mRav.hide();
+            return;
+        }
+
         super.hideControlsOverlay(mIsUIAnimationsEnabled);
 
         // Do throttle. Called so many times. Rely on boxing because initial state is unknown.
@@ -1273,6 +1343,16 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
             return;
         }
 
+        mRavExplicitShow = true; // the app asks for the controls (not Leanback on its own)
+        try {
+            showOverlayInt(show);
+        } finally {
+            mRavExplicitShow = false;
+        }
+    }
+
+    private void showOverlayInt(boolean show) {
+
         if (show) {
             showControlsOverlay(true);
         } else {
@@ -1283,6 +1363,18 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     @Override
     public void showSuggestions(boolean show) {
         if (forbidShowOverlay(show)) {
+            return;
+        }
+
+        if (mRav != null) {
+            if (show && System.currentTimeMillis() < mRavQuietUntilMs) {
+                return;
+            }
+            if (show) {
+                mRav.showUpNext();
+            } else {
+                mRav.hide();
+            }
             return;
         }
 
@@ -1299,6 +1391,16 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     @Override
     public void showControls(boolean show) {
         if (forbidShowOverlay(show)) {
+            return;
+        }
+
+        if (mRav != null) {
+            // only a fresh show starts on the seek bar; never pull focus away while the user is in the controls
+            boolean wasShown = mRav.isShownOverlay();
+            showOverlay(show);
+            if (show && !wasShown) {
+                mRav.focusSeek();
+            }
             return;
         }
 
@@ -1321,10 +1423,18 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         if (mPlayerGlue != null) {
             mPlayerGlue.setButtonState(buttonId, buttonState);
         }
+
+        if (mRav != null) {
+            mRav.refreshButtons();
+        }
     }
 
     @Override
     public void setChannelIcon(String iconUrl) {
+        if (mRav != null) {
+            mRav.setChannelIcon(iconUrl);
+        }
+
         if (mPlayerGlue != null) {
             mPlayerGlue.setChannelIcon(iconUrl);
         }
@@ -1341,6 +1451,10 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
     @Override
     public void setNextTitle(Video nextVideo) {
+        if (mRav != null) {
+            mRav.setNextVideo(nextVideo);
+        }
+
         if (mPlayerGlue != null) {
             mPlayerGlue.setNextTitle(createNextTitle(nextVideo));
         }
@@ -1369,6 +1483,8 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
     @Override
     public void updateSuggestions(VideoGroup group) {
+        postRefreshUpNext();
+
         if (mRowsAdapter == null) {
             Log.e(TAG, "Related videos row not initialized yet.");
             return;
@@ -1425,6 +1541,8 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
     @Override
     public void removeSuggestions(VideoGroup group) {
+        postRefreshUpNext();
+
         if (group == null) {
             return;
         }
@@ -1555,6 +1673,8 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
     @Override
     public void clearSuggestions() {
+        postRefreshUpNext();
+
         if (mRowsAdapter != null && mRowsAdapter.size() > 1) {
             mRowsAdapter.removeItems(SUGGESTIONS_START_INDEX, mRowsAdapter.size() - 1);
         }
@@ -1595,6 +1715,198 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
      * Also could help with memory leaks(??)<br/>
      * Without this also you'll have problems with track quality switching(??).
      */
+    private final Runnable mRefreshUpNext = () -> {
+        if (mRav != null) {
+            mRav.refreshUpNext();
+        }
+    };
+
+    private void postRefreshUpNext() {
+        if (mRav != null) {
+            mRav.removeCallbacks(mRefreshUpNext);
+            mRav.postDelayed(mRefreshUpNext, 50);
+        }
+    }
+
+    /** Keys go to the RavTube controls first. Returns true when they used the key. */
+    public boolean dispatchRavKey(KeyEvent event) {
+        int code = event.getKeyCode();
+        if (code == KeyEvent.KEYCODE_MEDIA_PLAY || code == KeyEvent.KEYCODE_MEDIA_PAUSE || code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
+            Log.d(TAG, "RavTube media key via activity: " + event);
+        }
+        if (mComments != null && !isInPIPMode() && mComments.dispatchKey(event)) {
+            return true;
+        }
+        return mRav != null && !isInPIPMode() && mRav.dispatchKey(event);
+    }
+
+    @Override
+    public boolean showCommentsOverlay(com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.CommentsReceiver receiver, String title) {
+        if (mComments == null || getView() == null) {
+            return false;
+        }
+        if (mRav != null) {
+            mRav.hide();
+        }
+        mComments.open(receiver, title);
+        return true;
+    }
+
+    /** Until this time, requests to show the controls are ignored (pausing with OK shows nothing). */
+    private long mRavQuietUntilMs;
+    /** True while the app itself (not Leanback) asks to show the controls. */
+    private boolean mRavExplicitShow;
+
+    private void onRavShown(boolean shown) {
+        // Do throttle. Rely on boxing because initial state is unknown.
+        if (mIsControlsShownPreviously != null && mIsControlsShownPreviously == shown) {
+            return;
+        }
+        // NOTE: no updatePlayerBackground() here: that dark background belongs to the Leanback controls and
+        // would stay behind the video after our controls hide.
+
+        if (mPlayerGlue != null) {
+            mPlayerGlue.setControlsVisibility(shown);
+        }
+
+        if (mPlaybackPresenter != null) {
+            mPlaybackPresenter.onControlsShown(shown);
+        }
+
+        mIsControlsShownPreviously = shown;
+    }
+
+    private final class RavHost implements RavPlayerOverlay.Host {
+        @Override
+        public long getPositionMs() {
+            return PlaybackFragment.this.getPositionMs();
+        }
+
+        @Override
+        public long getDurationMs() {
+            return PlaybackFragment.this.getDurationMs();
+        }
+
+        @Override
+        public boolean isPlaying() {
+            return getPlayWhenReady();
+        }
+
+        @Override
+        public void seekTo(long positionMs) {
+            setPositionMs(positionMs);
+        }
+
+        @Override
+        public void togglePlay(boolean quiet) {
+            if (quiet) {
+                mRavQuietUntilMs = System.currentTimeMillis() + 3000;
+            }
+            if (mPlayerGlue != null) {
+                if (getPlayWhenReady()) {
+                    mPlayerGlue.pause();
+                } else {
+                    mPlayerGlue.play();
+                }
+            } else {
+                setPlayWhenReady(!getPlayWhenReady());
+            }
+        }
+
+        @Override
+        public void previous() {
+            mPlaybackPresenter.onPreviousClicked();
+        }
+
+        @Override
+        public void next() {
+            mPlaybackPresenter.onNextClicked();
+        }
+
+        @Override
+        public void openComments() {
+            mPlaybackPresenter.onButtonClicked(R.id.action_chat, getButtonState(R.id.action_chat));
+        }
+
+        @Override
+        public void openChannel() {
+            mPlaybackPresenter.onButtonClicked(R.id.action_channel, getButtonState(R.id.action_channel));
+        }
+
+        @Override
+        public void toggleSubtitles() {
+            mPlaybackPresenter.onButtonClicked(R.id.lb_control_closed_captioning, getButtonState(R.id.lb_control_closed_captioning));
+        }
+
+        @Override
+        public boolean isSubtitlesOn() {
+            return getButtonState(R.id.lb_control_closed_captioning) == ClosedCaptioningAction.INDEX_ON;
+        }
+
+        @Override
+        public List<Video> getUpNext() {
+            if (mRowsAdapter == null) {
+                return null;
+            }
+            for (int i = SUGGESTIONS_START_INDEX; i < mRowsAdapter.size(); i++) {
+                Object row = mRowsAdapter.get(i);
+                if (!(row instanceof ListRow) || !(((ListRow) row).getAdapter() instanceof VideoGroupObjectAdapter)) {
+                    continue;
+                }
+                VideoGroupObjectAdapter adapter = (VideoGroupObjectAdapter) ((ListRow) row).getAdapter();
+                if (adapter.isEmpty()) {
+                    continue;
+                }
+                List<VideoGroup> groups = adapter.getAllGroups();
+                if (!groups.isEmpty() && groups.get(0).isChapters()) {
+                    continue; // chapters are not videos to play next
+                }
+                // the video that is playing is not "up next"
+                Video current = getVideo();
+                List<Video> result = new ArrayList<>();
+                for (Video video : adapter.getAll()) {
+                    boolean same = current != null && (video == current
+                            || (video.videoId != null && video.videoId.equals(current.videoId)));
+                    if (!same) {
+                        result.add(video);
+                    }
+                }
+                if (result.isEmpty()) {
+                    continue;
+                }
+                return result;
+            }
+            return null;
+        }
+
+        @Override
+        public void openSuggestion(Video video) {
+            mPlaybackPresenter.onSuggestionItemClicked(video);
+        }
+
+        @Override
+        public void longPressSuggestion(Video video) {
+            mPlaybackPresenter.onSuggestionItemLongClicked(video);
+        }
+
+        @Override
+        public void onUpNextEnd(Video last) {
+            mPlaybackPresenter.onScrollEnd(last);
+        }
+
+        @Override
+        public void onShownChanged(boolean shown) {
+            onRavShown(shown);
+        }
+
+        @Override
+        public void onUserActivity() {
+            if (mPlaybackPresenter != null) {
+                mPlaybackPresenter.onControlsShown(true); // restarts the presenter's own auto hide timer
+            }
+        }
+    }
+
     @Override
     public void resetPlayerState() {
         mExoPlayerController.resetPlayerState();

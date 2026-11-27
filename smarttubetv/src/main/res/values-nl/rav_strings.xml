@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rav_previous">Vorige</string>
+    <string name="rav_next">Volgende</string>
+    <string name="rav_comments">Reacties</string>
+    <string name="rav_channel">Kanaal</string>
+    <string name="rav_subtitles">Ondertiteling</string>
+    <string name="rav_up_next">Volgende video\'s</string>
+    <string name="rav_up_next_hint">▾ Volgende video\'s</string>
+    <string name="rav_replies">Antwoorden</string>
+    <string name="rav_comments_hint">▲ ▼ scrollen  ·  OK antwoorden  ·  OK vasthouden liken  ·  ◀ sluiten</string>
+</resources>

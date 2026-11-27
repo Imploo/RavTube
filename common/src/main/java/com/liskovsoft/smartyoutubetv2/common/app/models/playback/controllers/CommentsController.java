@@ -13,6 +13,7 @@ import com.liskovsoft.sharedutils.rx.RxHelper;
 import com.liskovsoft.smartyoutubetv2.common.R;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.BasePlayerController;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.CommentsReceiver;
+import com.liskovsoft.smartyoutubetv2.common.app.views.CommentsOverlayView;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.CommentsReceiver.Backup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.AbstractCommentsReceiver;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem;
@@ -47,7 +48,9 @@ public class CommentsController extends BasePlayerController {
     }
 
     private void openCommentsDialog() {
-        fitVideoIntoDialog();
+        if (!(getPlayer() instanceof CommentsOverlayView)) {
+            fitVideoIntoDialog(); // the overlay floats over the full-size video
+        }
 
         disposeActions();
 
@@ -168,6 +171,11 @@ public class CommentsController extends BasePlayerController {
     }
 
     private void showDialog(CommentsReceiver receiver, String title) {
+        if (getPlayer() instanceof CommentsOverlayView
+                && ((CommentsOverlayView) getPlayer()).showCommentsOverlay(receiver, title)) {
+            return;
+        }
+
         AppDialogPresenter appDialogPresenter = getAppDialogPresenter();
 
         appDialogPresenter.appendCommentsCategory(title, UiOptionItem.from(title, receiver));

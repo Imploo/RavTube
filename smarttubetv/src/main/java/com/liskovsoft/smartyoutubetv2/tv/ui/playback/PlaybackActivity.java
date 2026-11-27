@@ -57,6 +57,11 @@ public class PlaybackActivity extends LeanbackActivity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        // RavTube controls get the D-pad, OK and Back first
+        if (mPlaybackFragment != null && mPlaybackFragment.dispatchRavKey(event)) {
+            return true;
+        }
+
         if (mPlaybackFragment != null) {
             mPlaybackFragment.onDispatchKeyEvent(event);
         }

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rav_previous">Previous</string>
+    <string name="rav_next">Next</string>
+    <string name="rav_comments">Comments</string>
+    <string name="rav_channel">Channel</string>
+    <string name="rav_subtitles">Subtitles</string>
+    <string name="rav_up_next">Up next</string>
+    <string name="rav_up_next_hint">▾ Up next</string>
+    <string name="rav_replies">Replies</string>
+    <string name="rav_comments_hint">▲ ▼ scroll  ·  OK replies  ·  hold OK like  ·  ◀ close</string>
+</resources>
