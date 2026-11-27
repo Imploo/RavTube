@@ -6,6 +6,7 @@ import android.text.TextUtils;
 import android.util.Pair;
 
 import com.google.android.exoplayer2.Format;
+import com.liskovsoft.smartyoutubetv2.common.rav.RavBestTrack;
 import com.google.android.exoplayer2.source.TrackGroup;
 import com.google.android.exoplayer2.source.TrackGroupArray;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
@@ -469,6 +470,14 @@ public class TrackSelectorManager implements TrackSelectorCallback {
         Renderer renderer = mRenderers[originTrack.rendererIndex];
 
         MediaTrack result = createAutoSelection(originTrack.rendererIndex);
+
+        // RavTube: always the best video stream the TV can handle (see RavBestTrack)
+        if (originTrack instanceof VideoTrack && originTrack.format != null) {
+            MediaTrack best = RavBestTrack.pick(mContext, renderer.mediaTracks, track -> !hasPlaybackGlitch(track));
+            if (best != null) {
+                return best;
+            }
+        }
 
         if (originTrack.format != null) { // not auto selection
             MediaTrack prevResult;
