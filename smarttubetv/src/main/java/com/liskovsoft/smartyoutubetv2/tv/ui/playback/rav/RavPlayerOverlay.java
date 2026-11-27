@@ -105,7 +105,6 @@ public class RavPlayerOverlay extends FrameLayout {
     // views
     private final View mScrimControls;
     private final View mScrimUpNext;
-    private final View mScrimTop;
     private final TextView mClock;
     private final FrameLayout mLayer;
     private final List<PillButton> mButtons = new ArrayList<>();
@@ -161,9 +160,9 @@ public class RavPlayerOverlay extends FrameLayout {
         // scrims
         mScrimControls = new View(context);
         mScrimControls.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0x00000000, 0x8C000000, 0xDB000000}));
+                new int[]{0x00000000, 0xA6000000, 0xE0000000, 0xF5000000}));
         mScrimControls.setAlpha(0f);
-        addView(mScrimControls, new LayoutParams(-1, (int) (dp(540) * 0.62f), Gravity.BOTTOM));
+        addView(mScrimControls, new LayoutParams(-1, (int) (dp(540) * 0.68f), Gravity.BOTTOM));
 
         mScrimUpNext = new View(context);
         mScrimUpNext.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
@@ -171,16 +170,12 @@ public class RavPlayerOverlay extends FrameLayout {
         mScrimUpNext.setAlpha(0f);
         addView(mScrimUpNext, new LayoutParams(-1, -1));
 
-        mScrimTop = new View(context);
-        mScrimTop.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0x8C000000, 0x00000000}));
-        mScrimTop.setAlpha(0f);
-        addView(mScrimTop, new LayoutParams(-1, dp(120), Gravity.TOP));
 
         mClock = new TextView(context);
         font(mClock);
         mClock.setTextSize(19);
         mClock.setTextColor(0xB3FFFFFF);
+        mClock.setShadowLayer(dp(4), 0, dp(1), 0xCC000000);
         mClock.setAlpha(0f);
         LayoutParams clockLp = new LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
         clockLp.setMargins(0, dp(38), dp(56), 0);
@@ -767,7 +762,6 @@ public class RavPlayerOverlay extends FrameLayout {
                 .setInterpolator(new DecelerateInterpolator(1.6f)).start();
         mScrimControls.animate().alpha(mode == MODE_CONTROLS ? 1f : 0f).setDuration(300).start();
         mScrimUpNext.animate().alpha(mode == MODE_UP_NEXT ? 1f : 0f).setDuration(300).start();
-        mScrimTop.animate().alpha(shown ? 1f : 0f).setDuration(300).start();
         mClock.animate().alpha(shown ? 1f : 0f).setDuration(300).start();
         mHintDown.animate().alpha(mode == MODE_UP_NEXT ? 0f : 1f).setDuration(200).start();
         if (shown) {
