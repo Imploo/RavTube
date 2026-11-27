@@ -12,6 +12,7 @@ import androidx.fragment.app.Fragment;
 
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.mylogger.Log;
+import com.liskovsoft.smartyoutubetv2.common.rav.RavContinueWatching;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerEngine;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
@@ -202,6 +203,13 @@ public class PlaybackActivity extends LeanbackActivity {
         super.finishReally();
 
         mPlaybackFragment.onFinish();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // RavTube: the player is gone (Back, Home, another app): refresh Continue watching
+        RavContinueWatching.syncSoon(this);
     }
 
     @Override

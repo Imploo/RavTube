@@ -51,6 +51,9 @@ public class UpdateChannelsTask {
                     e.printStackTrace();
                 }
             }
+
+            // RavTube: Continue watching (unfinished videos from the history, 7 days)
+            RavContinueWatching.sync(mContext);
         }
     }
 

@@ -43,6 +43,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.BrowsePresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.SearchPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.misc.CrashRestorer;
+import com.liskovsoft.smartyoutubetv2.common.rav.RavContinueWatching;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.liskovsoft.smartyoutubetv2.tv.adapter.VideoGroupObjectAdapter;
 import com.liskovsoft.smartyoutubetv2.tv.ui.browse.dialog.ErrorDialogFragment;
@@ -186,6 +187,7 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
     @Override
     public void onResume() {
         super.onResume();
+        RavContinueWatching.syncSoon(getContext()); // back from the player: refresh Continue watching
         if (!mIsFragmentCreated) {
             mPresenter.onViewResumed();
         }
