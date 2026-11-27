@@ -9,4 +9,5 @@
     <string name="rav_up_next_hint">▾ Volgende video\'s</string>
     <string name="rav_replies">Antwoorden</string>
     <string name="rav_comments_hint">▲ ▼ scrollen  ·  OK antwoorden  ·  OK vasthouden liken  ·  ◀ sluiten</string>
+    <string name="rav_quality_lowered">%1$dp vanwege trage verbinding  ·  OK probeert de beste weer</string>
 </resources>

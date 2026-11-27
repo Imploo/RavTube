@@ -9,4 +9,5 @@
     <string name="rav_up_next_hint">▾ Up next</string>
     <string name="rav_replies">Replies</string>
     <string name="rav_comments_hint">▲ ▼ scroll  ·  OK replies  ·  hold OK like  ·  ◀ close</string>
+    <string name="rav_quality_lowered">%1$dp because of a slow connection  ·  OK tries the best again</string>
 </resources>

@@ -61,6 +61,8 @@ public class RavPlayerOverlay extends FrameLayout {
     private static final int BTN_COMMENTS = 2;
     private static final int BTN_CHANNEL = 3;
     private static final int BTN_CC = 4;
+    private static final int BTN_QUALITY = 5; // only visible while the quality is lowered
+    private static final int WARNING_YELLOW = 0xFFFFC83D;
 
     /** What the overlay needs from the player. Implemented by PlaybackFragment. */
     public interface Host {
@@ -76,6 +78,10 @@ public class RavPlayerOverlay extends FrameLayout {
         void openChannel();
         void toggleSubtitles();
         boolean isSubtitlesOn();
+        /** @return the lowered resolution (e.g. 1080) while a slow connection keeps it down, else 0 */
+        int getLoweredQualityHeight();
+        /** Try the best quality again. */
+        void retryBestQuality();
         List<Video> getUpNext();
         void openSuggestion(Video video);
         void longPressSuggestion(Video video);
@@ -244,6 +250,10 @@ public class RavPlayerOverlay extends FrameLayout {
         mChannelAvatar = channel.icon;
         addButton(buttons, channel, dp(10));
         addButton(buttons, new PillButton(context, R.drawable.rav_ic_cc, context.getString(R.string.rav_subtitles)), dp(10));
+        PillButton quality = new PillButton(context, R.drawable.rav_ic_warning, "");
+        quality.setIdleInk(WARNING_YELLOW);
+        quality.setVisibility(View.GONE);
+        addButton(buttons, quality, dp(10));
         mLayer.addView(buttons, new LayoutParams(-2, dp(36)));
 
         mSeek = new SeekBarView(context);
@@ -334,6 +344,11 @@ public class RavPlayerOverlay extends FrameLayout {
     /** Milliseconds since the last key used by the controls. */
     public long getIdleMs() {
         return System.currentTimeMillis() - mLastInputMs;
+    }
+
+    /** The lowered-quality notice changed: update the buttons. */
+    public void refreshQualityNotice() {
+        mHandler.post(this::render);
     }
 
     public boolean isShownOverlay() {
@@ -546,7 +561,9 @@ public class RavPlayerOverlay extends FrameLayout {
                     render();
                     return true;
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
-                    mBtn = Math.min(mButtons.size() - 1, mBtn + 1);
+                    if (mBtn + 1 < mButtons.size() && mButtons.get(mBtn + 1).getVisibility() == View.VISIBLE) {
+                        mBtn++;
+                    }
                     render();
                     return true;
                 case KeyEvent.KEYCODE_DPAD_UP:
@@ -627,6 +644,10 @@ public class RavPlayerOverlay extends FrameLayout {
             case BTN_CC:
                 mHost.toggleSubtitles();
                 mHandler.postDelayed(this::render, 300);
+                break;
+            case BTN_QUALITY:
+                mHost.retryBestQuality();
+                mBtn = BTN_CC;
                 break;
         }
         render();
@@ -778,6 +799,14 @@ public class RavPlayerOverlay extends FrameLayout {
             mButtons.get(i).setFocused(mMode == MODE_CONTROLS && mFocus == FOCUS_BUTTONS && mBtn == i);
         }
         mButtons.get(BTN_CC).setOn(mHost.isSubtitlesOn());
+        int lowered = mHost.getLoweredQualityHeight();
+        PillButton quality = mButtons.get(BTN_QUALITY);
+        quality.setVisibility(lowered > 0 ? View.VISIBLE : View.GONE);
+        if (lowered > 0) {
+            quality.setLabel(getContext().getString(R.string.rav_quality_lowered, lowered));
+        } else if (mBtn == BTN_QUALITY) {
+            mBtn = BTN_CC;
+        }
         mSeek.setFocused(mMode == MODE_CONTROLS && mFocus == FOCUS_SEEK);
 
         for (int i = 0; i < mCards.size(); i++) {
@@ -844,6 +873,7 @@ public class RavPlayerOverlay extends FrameLayout {
         private final GradientDrawable mBg = rect(0x22FFFFFF, dp(18));
         private final View mDot;
         private boolean mFocused;
+        private int mIdleInk = Color.WHITE;
 
         PillButton(Context context, int iconRes, String text) {
             super(context);
@@ -885,6 +915,12 @@ public class RavPlayerOverlay extends FrameLayout {
             label.setText(text);
         }
 
+        /** Icon colour without focus (white by default). */
+        void setIdleInk(int color) {
+            mIdleInk = color;
+            icon.setColorFilter(color);
+        }
+
         void setOn(boolean on) {
             mDot.setVisibility(on ? VISIBLE : GONE);
         }
@@ -896,7 +932,7 @@ public class RavPlayerOverlay extends FrameLayout {
             mFocused = focused;
             mBg.setColor(focused ? 0xFFFFFFFF : 0x22FFFFFF);
             if (icon.getDrawable() != null && icon != mChannelAvatar) {
-                icon.setColorFilter(focused ? 0xFF101020 : Color.WHITE);
+                icon.setColorFilter(focused ? 0xFF101020 : mIdleInk);
             }
             label.setTextColor(focused ? 0xFF101020 : Color.WHITE);
             label.setVisibility(focused ? VISIBLE : GONE);

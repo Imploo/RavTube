@@ -60,6 +60,7 @@ import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.DebugInfoManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.ExoPlayerInitializer;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
+import com.google.android.exoplayer2.Format;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.versions.renderer.CustomOverridesRenderersFactory;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.versions.selector.RestoreTrackSelector;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
@@ -99,6 +100,8 @@ import java.util.Map;
  * {@link VideoPlayerGlue}.
  */
 import com.liskovsoft.smartyoutubetv2.tv.ui.playback.rav.RavPlayerOverlay;
+import com.liskovsoft.smartyoutubetv2.tv.ui.playback.rav.RavQualityGuard;
+import com.liskovsoft.smartyoutubetv2.common.rav.RavBestTrack;
 import com.liskovsoft.smartyoutubetv2.tv.ui.playback.actions.ClosedCaptioningAction;
 
 public class PlaybackFragment extends SeekModePlaybackFragment implements PlaybackView, com.liskovsoft.smartyoutubetv2.common.app.views.CommentsOverlayView {
@@ -131,6 +134,8 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     private String mSelectedVideoId;
     /** RavTube controls, drawn over the video instead of the Leanback controls. */
     private RavPlayerOverlay mRav;
+    /** RavTube: lowers the quality when playback keeps stalling. */
+    private RavQualityGuard mQualityGuard;
     /** RavTube comments: glass cards over the video instead of the dialog. */
     private com.liskovsoft.smartyoutubetv2.tv.ui.playback.rav.RavCommentsOverlay mComments;
 
@@ -415,6 +420,13 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     }
 
     private void destroyPlayerObjects() {
+        if (mQualityGuard != null) {
+            if (mPlayer != null) {
+                mPlayer.removeListener(mQualityGuard);
+            }
+            mQualityGuard.release();
+            mQualityGuard = null;
+        }
         setAdapter(null); // PlayerGlue->LeanbackPlayerAdapter->Context memory leak fix
         if (mRowsAdapter != null) {
             mRowsAdapter.clear();
@@ -503,6 +515,34 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         mPlayer = mPlayerInitializer.createPlayer(getContext(), renderersFactory, trackSelector);
 
         mExoPlayerController.setPlayer(mPlayer);
+
+        // RavTube: step the quality down when playback keeps stalling
+        mQualityGuard = new RavQualityGuard(new RavQualityGuard.Callback() {
+            @Override
+            public Format getCurrentVideoFormat() {
+                return mPlayer != null ? mPlayer.getVideoFormat() : null;
+            }
+
+            @Override
+            public void reselectVideo() {
+                reselectRavVideo();
+            }
+
+            @Override
+            public void onQualityNoticeChanged() {
+                if (mRav != null) {
+                    mRav.refreshQualityNotice();
+                }
+            }
+        });
+        mPlayer.addListener(mQualityGuard);
+    }
+
+    /** RavTube: any video preset makes the track selector pick again; RavBestTrack decides the track. */
+    private void reselectRavVideo() {
+        if (mExoPlayerController != null) {
+            mExoPlayerController.selectFormat(FormatItem.VIDEO_4K_VP9_60);
+        }
     }
 
     private void createPlayerGlue() {
@@ -1841,6 +1881,23 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         @Override
         public boolean isSubtitlesOn() {
             return getButtonState(R.id.lb_control_closed_captioning) == ClosedCaptioningAction.INDEX_ON;
+        }
+
+        @Override
+        public int getLoweredQualityHeight() {
+            return RavBestTrack.getLoweredHeight();
+        }
+
+        @Override
+        public void retryBestQuality() {
+            RavBestTrack.resetCap();
+            if (mQualityGuard != null) {
+                mQualityGuard.onReselect();
+            }
+            reselectRavVideo();
+            if (mRav != null) {
+                mRav.refreshQualityNotice();
+            }
         }
 
         @Override
