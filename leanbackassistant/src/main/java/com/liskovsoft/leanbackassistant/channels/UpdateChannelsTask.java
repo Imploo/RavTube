@@ -41,6 +41,16 @@ public class UpdateChannelsTask {
                 Log.e(TAG, e.getMessage());
                 e.printStackTrace();
             }
+
+            // RavTube: one failing section shouldn't block the others
+            for (Playlist playlist : mService.getExtraPlaylists()) {
+                try {
+                    updateOrPublishChannel(playlist);
+                } catch (Exception e) {
+                    Log.e(TAG, "Channel " + playlist.getName() + " failed: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
         }
     }
 
