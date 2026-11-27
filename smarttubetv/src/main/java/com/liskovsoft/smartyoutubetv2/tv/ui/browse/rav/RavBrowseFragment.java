@@ -103,6 +103,7 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
     private TextView mClock;
     private View mSearchBtn;
     private View mSettingsBtn;
+    private View mUpdateBtn; // shows up next to settings when the updater found a new version
     private RavPosterPanel mPanel;
     private FrameLayout mHost;
     private ProgressBar mProgress;
@@ -262,11 +263,16 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
         // search and settings follow right after the section buttons, the clock sits at the far right
         mSearchBtn = roundButton(ctx, R.drawable.rav_ic_search, () -> SearchPresenter.instance(getContext()).startSearch(null));
         mSettingsBtn = roundButton(ctx, R.drawable.rav_ic_settings, this::openSettings);
+        mUpdateBtn = roundButton(ctx, R.drawable.rav_ic_update, this::openUpdate, 0x55FFB46B, RavStyle.AMBER);
+        mUpdateBtn.setVisibility(View.GONE);
         LinearLayout.LayoutParams searchLp = new LinearLayout.LayoutParams(dp(34), dp(34));
         searchLp.leftMargin = dp(10);
         searchLp.rightMargin = dp(5);
         mTileColumn.addView(mSearchBtn, searchLp);
         mTileColumn.addView(mSettingsBtn, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        LinearLayout.LayoutParams updateLp = new LinearLayout.LayoutParams(dp(34), dp(34));
+        updateLp.leftMargin = dp(5);
+        mTileColumn.addView(mUpdateBtn, updateLp);
         mClock = new TextView(ctx);
         font(mClock);
         mClock.setTextSize(17);
@@ -310,16 +316,21 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
     }
 
     private View roundButton(Context ctx, int icon, Runnable onClick) {
+        return roundButton(ctx, icon, onClick, 0x22FFFFFF, Color.WHITE);
+    }
+
+    private View roundButton(Context ctx, int icon, Runnable onClick, int idleBg, int idleInk) {
         ImageView btn = new ImageView(ctx);
         btn.setImageResource(icon);
         btn.setPadding(dp(8), dp(8), dp(8), dp(8));
         btn.setAlpha(0.75f);
         btn.setFocusable(true);
-        btn.setBackground(oval(0x22FFFFFF));
+        btn.setBackground(oval(idleBg));
+        btn.setColorFilter(idleInk);
         btn.setOnClickListener(v -> onClick.run());
         btn.setOnFocusChangeListener((v, has) -> {
-            ((GradientDrawable) v.getBackground()).setColor(has ? 0xFFFFFFFF : 0x22FFFFFF);
-            btn.setColorFilter(has ? 0xFF101020 : Color.WHITE);
+            ((GradientDrawable) v.getBackground()).setColor(has ? 0xFFFFFFFF : idleBg);
+            btn.setColorFilter(has ? 0xFF101020 : idleInk);
             v.setAlpha(has ? 1f : 0.75f);
         });
         btn.setOnKeyListener((v, code, ev) -> {
@@ -331,9 +342,7 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
                     focusContent();
                     return true;
                 case KeyEvent.KEYCODE_DPAD_LEFT:
-                    if (v == mSettingsBtn) {
-                        mSearchBtn.requestFocus();
-                    } else {
+                    if (!moveButtonFocus(v, -1)) {
                         View last = lastVisibleTile();
                         if (last != null) {
                             last.requestFocus();
@@ -341,9 +350,7 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
                     }
                     return true;
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
-                    if (v == mSearchBtn && mSettingsBtn.getVisibility() == View.VISIBLE) {
-                        mSettingsBtn.requestFocus();
-                    }
+                    moveButtonFocus(v, 1);
                     return true;
                 case KeyEvent.KEYCODE_DPAD_UP:
                     return true;
@@ -354,6 +361,19 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
             return false;
         });
         return btn;
+    }
+
+    /** Search, settings and update form one strip: move to the next visible one in that direction. */
+    private boolean moveButtonFocus(View from, int dir) {
+        View[] buttons = {mSearchBtn, mSettingsBtn, mUpdateBtn};
+        int i = java.util.Arrays.asList(buttons).indexOf(from) + dir;
+        for (; i >= 0 && i < buttons.length; i += dir) {
+            if (buttons[i].getVisibility() == View.VISIBLE) {
+                buttons[i].requestFocus();
+                return true;
+            }
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------ section tiles
@@ -372,8 +392,15 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
         return i == -1 ? null : mSections.get(i);
     }
 
-    private static boolean isTile(BrowseSection section) {
-        return section.getType() != BrowseSection.TYPE_SETTINGS_GRID; // settings live behind the header button
+    private boolean isTile(BrowseSection section) {
+        // settings and the update notice live behind their own header buttons
+        return section.getType() != BrowseSection.TYPE_SETTINGS_GRID && !isUpdateSection(section);
+    }
+
+    /** The updater pins its notice as an error section titled "update found" (see AppUpdatePresenter). */
+    private boolean isUpdateSection(BrowseSection section) {
+        return section != null && section.getType() == BrowseSection.TYPE_ERROR && getContext() != null
+                && getContext().getString(com.liskovsoft.smartyoutubetv2.common.R.string.update_found).equals(section.getTitle());
     }
 
     private void scheduleRebuildTiles() {
@@ -400,6 +427,7 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
             mTiles.put(section.getId(), tile);
         }
         mSettingsBtn.setVisibility(settingsSection() != null ? View.VISIBLE : View.GONE);
+        mUpdateBtn.setVisibility(updateSection() != null ? View.VISIBLE : View.GONE);
 
         if (mSelectedId == -1 || findSection(mSelectedId) == null) {
             View first = firstVisibleTile();
@@ -585,6 +613,24 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
         }
     }
 
+    private BrowseSection updateSection() {
+        for (BrowseSection s : mSections) {
+            if (isUpdateSection(s)) {
+                return s;
+            }
+        }
+        return null;
+    }
+
+    /** Shows the changelog with the install button. */
+    private void openUpdate() {
+        BrowseSection update = updateSection();
+        if (update != null) {
+            mFocusOnContentPending = true;
+            selectTile(update.getId(), 0);
+        }
+    }
+
     // ------------------------------------------------------------------ section content
 
     private void renderSelected() {
@@ -709,6 +755,9 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
         }
         if (existing != -1) {
             mSections.remove(existing);
+        }
+        if (isUpdateSection(section)) {
+            index = -1; // not a tile: keep it at the end so it doesn't shift the section indexes
         }
         if (index == -1 || index > mSections.size()) {
             mSections.add(section);
