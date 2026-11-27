@@ -103,8 +103,7 @@ public class RavPlayerOverlay extends FrameLayout {
     private boolean mOkLongHandled;
 
     // views
-    private final View mScrimControls;
-    private final View mScrimUpNext;
+    private final LinearLayout mScrim;
     private final TextView mClock;
     private final FrameLayout mLayer;
     private final List<PillButton> mButtons = new ArrayList<>();
@@ -158,17 +157,21 @@ public class RavPlayerOverlay extends FrameLayout {
         setClipChildren(false);
 
         // scrims
-        mScrimControls = new View(context);
-        mScrimControls.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+        // one scrim for both steps: a fade followed by a solid tail, sliding up with the control layer
+        int fadeH = (int) (dp(540) * 0.68f);
+        mScrim = new LinearLayout(context);
+        mScrim.setOrientation(LinearLayout.VERTICAL);
+        View fade = new View(context);
+        fade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{0x00000000, 0xA6000000, 0xE0000000, 0xF5000000}));
-        mScrimControls.setAlpha(0f);
-        addView(mScrimControls, new LayoutParams(-1, (int) (dp(540) * 0.68f), Gravity.BOTTOM));
-
-        mScrimUpNext = new View(context);
-        mScrimUpNext.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0x26000000, 0xB3000000, 0xEB000000}));
-        mScrimUpNext.setAlpha(0f);
-        addView(mScrimUpNext, new LayoutParams(-1, -1));
+        mScrim.addView(fade, new LinearLayout.LayoutParams(-1, fadeH));
+        View solid = new View(context);
+        solid.setBackgroundColor(0xF5000000);
+        mScrim.addView(solid, new LinearLayout.LayoutParams(-1, dp(540)));
+        mScrim.setAlpha(0f);
+        LayoutParams scrimLp = new LayoutParams(-1, fadeH + dp(540), Gravity.TOP);
+        scrimLp.topMargin = dp(540) - fadeH;
+        addView(mScrim, scrimLp);
 
 
         mClock = new TextView(context);
@@ -760,8 +763,8 @@ public class RavPlayerOverlay extends FrameLayout {
         float layerY = mode == MODE_HIDDEN ? dp(560) : mode == MODE_CONTROLS ? dp(344) : dp(170);
         mLayer.animate().translationY(layerY).alpha(shown ? 1f : 0f).setDuration(380)
                 .setInterpolator(new DecelerateInterpolator(1.6f)).start();
-        mScrimControls.animate().alpha(mode == MODE_CONTROLS ? 1f : 0f).setDuration(300).start();
-        mScrimUpNext.animate().alpha(mode == MODE_UP_NEXT ? 1f : 0f).setDuration(300).start();
+        mScrim.animate().translationY(layerY - dp(344)).alpha(shown ? 1f : 0f).setDuration(380)
+                .setInterpolator(new DecelerateInterpolator(1.6f)).start();
         mClock.animate().alpha(shown ? 1f : 0f).setDuration(300).start();
         mHintDown.animate().alpha(mode == MODE_UP_NEXT ? 0f : 1f).setDuration(200).start();
         if (shown) {
