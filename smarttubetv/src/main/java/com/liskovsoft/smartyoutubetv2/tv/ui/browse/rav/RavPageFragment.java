@@ -35,6 +35,9 @@ import static com.liskovsoft.smartyoutubetv2.tv.ui.browse.rav.RavStyle.*;
  * subtitle, clock) and the poster panel at the same place as in the overview. Used for channel pages.
  */
 public abstract class RavPageFragment extends Fragment {
+    /** Side margin and header height (dp), the same as the overview. */
+    private static final int SIDE = 56;
+    private static final int TOP_H = 92;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private RavBokehView mBokeh;
     private ImageView mAvatar;
@@ -74,54 +77,51 @@ public abstract class RavPageFragment extends Fragment {
         mBokeh = new RavBokehView(ctx);
         root.addView(mBokeh, new FrameLayout.LayoutParams(-1, -1));
 
-        // channel avatar where the overview has its tiles
-        mAvatar = new ImageView(ctx);
-        mAvatar.setBackground(oval(TILE_BG));
-        FrameLayout.LayoutParams avatarLp = new FrameLayout.LayoutParams(dp(64), dp(64));
-        avatarLp.leftMargin = dp(28 + (124 - 64) / 2f);
-        avatarLp.topMargin = dp((HEADER_H - 64) / 2f);
-        root.addView(mAvatar, avatarLp);
-
+        // header like the overview: avatar, name and subscribers on the left, clock at the far right
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
+        mAvatar = new ImageView(ctx);
+        mAvatar.setBackground(oval(TILE_BG));
+        LinearLayout.LayoutParams avatarLp = new LinearLayout.LayoutParams(dp(40), dp(40));
+        avatarLp.rightMargin = dp(14);
+        header.addView(mAvatar, avatarLp);
         LinearLayout titles = new LinearLayout(ctx);
         titles.setOrientation(LinearLayout.VERTICAL);
         mTitle = new TextView(ctx);
         font(mTitle);
-        mTitle.setTextSize(30);
+        mTitle.setTextSize(20);
         mTitle.setTextColor(Color.WHITE);
         mTitle.setSingleLine(true);
         mTitle.setEllipsize(TextUtils.TruncateAt.END);
-        if (Build.VERSION.SDK_INT >= 21) {
-            mTitle.setLetterSpacing(0.01f);
-        }
         titles.addView(mTitle);
         mSubtitle = new TextView(ctx);
-        mSubtitle.setTextSize(12);
+        font(mSubtitle);
+        mSubtitle.setTextSize(10);
         mSubtitle.setTextColor(0x99FFFFFF);
         mSubtitle.setSingleLine(true);
-        mSubtitle.setEllipsize(TextUtils.TruncateAt.END);
         mSubtitle.setVisibility(View.GONE);
         titles.addView(mSubtitle);
         header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
         mClock = new TextView(ctx);
         font(mClock);
-        mClock.setTextSize(19);
+        mClock.setTextSize(17);
         mClock.setTextColor(0xB3FFFFFF);
         header.addView(mClock, new LinearLayout.LayoutParams(-2, -2));
-        FrameLayout.LayoutParams headerLp = new FrameLayout.LayoutParams(-1, dp(HEADER_H));
-        headerLp.leftMargin = dp(208);
-        headerLp.rightMargin = dp(48);
+        FrameLayout.LayoutParams headerLp = new FrameLayout.LayoutParams(-1, dp(TOP_H));
+        headerLp.leftMargin = dp(SIDE);
+        headerLp.rightMargin = dp(24);
         root.addView(header, headerLp);
 
+        // posters: full width, 5 side by side, like the overview
         mPanel = new RavPosterPanel(ctx, new PanelCallback());
+        mPanel.setCompact(960 - 2 * (SIDE - 16), 5);
         mPanel.setMode(getPanelMode());
         mPanel.setFocusOnContentPending(true);
         FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(-1, -1);
-        panelLp.leftMargin = dp(208);
-        panelLp.topMargin = dp(HEADER_H);
-        panelLp.rightMargin = dp(42);
+        panelLp.leftMargin = dp(SIDE - 16);
+        panelLp.topMargin = dp(TOP_H);
+        panelLp.rightMargin = dp(SIDE - 16);
         root.addView(mPanel, panelLp);
 
         mProgress = new ProgressBar(ctx);
@@ -131,7 +131,6 @@ public abstract class RavPageFragment extends Fragment {
         }
         mProgress.setVisibility(View.GONE);
         FrameLayout.LayoutParams progressLp = new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.CENTER);
-        progressLp.leftMargin = dp(104);
         root.addView(mProgress, progressLp);
 
         return root;
@@ -169,7 +168,7 @@ public abstract class RavPageFragment extends Fragment {
         mSubtitle.setVisibility(TextUtils.isEmpty(subs) ? View.GONE : View.VISIBLE);
         String avatar = channel != null ? channel.getCardImageUrl() : null;
         if (avatar != null) {
-            RavPosterPanel.loadImage(mAvatar, avatar, dp(64), dp(64), true);
+            RavPosterPanel.loadImage(mAvatar, avatar, dp(40), dp(40), true);
         }
     }
 

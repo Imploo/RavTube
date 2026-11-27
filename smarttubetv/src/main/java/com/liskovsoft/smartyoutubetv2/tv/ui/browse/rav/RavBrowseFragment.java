@@ -76,6 +76,11 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
     private static final int MODE_GRID = 2;
     private static final int MODE_HOSTED = 3;
     private static final int MODE_CHANNELS = 4;
+    /** Side margin and header height (dp) of the overview. */
+    private static final int SIDE = 56;
+    private static final int TOP_H = 92;
+    /** Home: the first section (Recommended) is spread over this many rows. */
+    private static final int HOME_FIRST_ROWS = 3;
     private static final int GRID_COLS = 3;
     private static final int RESTORE_MAX_SIZE = 200;
 
@@ -92,8 +97,7 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
 
     // views
     private RavBokehView mBokeh;
-    private TileScrollView mTileScroll;
-    private RavGlide mTileGlide;
+    private CategoryScroll mTileScroll;
     private LinearLayout mTileColumn;
     private TextView mTitle;
     private TextView mClock;
@@ -207,7 +211,7 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
         mPresenter.onViewDestroyed();
     }
 
-    /** Back from the content (or a hosted fragment) goes to the section tiles. */
+    /** Back from the content (or a hosted fragment) goes to the section buttons. */
     public boolean handleBack() {
         if (mTileColumn != null && !mTileColumn.hasFocus()) {
             focusTile();
@@ -229,60 +233,59 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
         mBokeh = new RavBokehView(ctx);
         root.addView(mBokeh, new FrameLayout.LayoutParams(-1, -1));
 
-        // section tiles
-        mTileColumn = new LinearLayout(ctx);
-        mTileColumn.setOrientation(LinearLayout.VERTICAL);
-        mTileColumn.setPadding(dp(18), dp((HEADER_H - TILE_H) / 2f), dp(18), dp(36));
-        mTileColumn.setClipChildren(false);
-        mTileColumn.setClipToPadding(false);
-        mTileScroll = new TileScrollView(ctx);
-        mTileScroll.setVerticalScrollBarEnabled(false);
-        mTileScroll.setClipChildren(false);
-        mTileScroll.setClipToPadding(false);
-        mTileScroll.addView(mTileColumn);
-        mTileGlide = new RavGlide(mTileScroll, false);
-        FrameLayout.LayoutParams tileLp = new FrameLayout.LayoutParams(dp(124), -1);
-        tileLp.leftMargin = dp(28);
-        root.addView(mTileScroll, tileLp);
-
-        // header
+        // header: logo, the sections as icon buttons, clock, search and settings
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        mTitle = new TextView(ctx);
-        font(mTitle);
-        mTitle.setTextSize(30);
-        mTitle.setTextColor(Color.WHITE);
-        mTitle.setSingleLine(true);
-        mTitle.setEllipsize(TextUtils.TruncateAt.END);
-        if (Build.VERSION.SDK_INT >= 21) {
-            mTitle.setLetterSpacing(0.01f);
-        }
-        header.addView(mTitle, new LinearLayout.LayoutParams(0, -2, 1f));
-        mClock = new TextView(ctx);
-        font(mClock);
-        mClock.setTextSize(19);
-        mClock.setTextColor(0xB3FFFFFF);
-        LinearLayout.LayoutParams clockLp = new LinearLayout.LayoutParams(-2, -2);
-        clockLp.rightMargin = dp(14);
-        header.addView(mClock, clockLp);
+        header.setClipChildren(false);
+        ImageView logo = new ImageView(ctx);
+        logo.setImageResource(R.drawable.rav_logo);
+        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(28), dp(29));
+        logoLp.rightMargin = dp(14);
+        header.addView(logo, logoLp);
+
+        mTileColumn = new LinearLayout(ctx);
+        mTileColumn.setOrientation(LinearLayout.HORIZONTAL);
+        mTileColumn.setGravity(Gravity.CENTER_VERTICAL);
+        mTileColumn.setPadding(dp(4), dp(8), dp(4), dp(8));
+        mTileColumn.setClipChildren(false);
+        mTileColumn.setClipToPadding(false);
+        mTileScroll = new CategoryScroll(ctx);
+        mTileScroll.setHorizontalScrollBarEnabled(false);
+        mTileScroll.setClipChildren(false);
+        mTileScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        mTileScroll.addView(mTileColumn);
+        header.addView(mTileScroll, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        mTitle = new TextView(ctx); // the selected section's name shows in its button; no big title
+        // search and settings follow right after the section buttons, the clock sits at the far right
         mSearchBtn = roundButton(ctx, R.drawable.rav_ic_search, () -> SearchPresenter.instance(getContext()).startSearch(null));
         mSettingsBtn = roundButton(ctx, R.drawable.rav_ic_settings, this::openSettings);
-        LinearLayout.LayoutParams searchLp = new LinearLayout.LayoutParams(dp(36), dp(36));
-        searchLp.rightMargin = dp(10);
-        header.addView(mSearchBtn, searchLp);
-        header.addView(mSettingsBtn, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        FrameLayout.LayoutParams headerLp = new FrameLayout.LayoutParams(-1, dp(HEADER_H));
-        headerLp.leftMargin = dp(208);
-        headerLp.rightMargin = dp(48);
+        LinearLayout.LayoutParams searchLp = new LinearLayout.LayoutParams(dp(34), dp(34));
+        searchLp.leftMargin = dp(10);
+        searchLp.rightMargin = dp(5);
+        mTileColumn.addView(mSearchBtn, searchLp);
+        mTileColumn.addView(mSettingsBtn, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        mClock = new TextView(ctx);
+        font(mClock);
+        mClock.setTextSize(17);
+        mClock.setTextColor(0xB3FFFFFF);
+        LinearLayout.LayoutParams clockLp = new LinearLayout.LayoutParams(-2, -2);
+        clockLp.leftMargin = dp(12);
+        header.addView(mClock, clockLp);
+        FrameLayout.LayoutParams headerLp = new FrameLayout.LayoutParams(-1, dp(TOP_H));
+        headerLp.leftMargin = dp(SIDE);
+        headerLp.rightMargin = dp(24); // the clock sits close to the right edge
         root.addView(header, headerLp);
 
-        // poster panel
+        // poster panel: full width, 5 posters side by side
         mPanel = new RavPosterPanel(ctx, new PanelCallback());
+        mPanel.setCompact(960 - 2 * (SIDE - 16), 5);
         FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(-1, -1);
-        panelLp.leftMargin = dp(208);
-        panelLp.topMargin = dp(HEADER_H);
-        panelLp.rightMargin = dp(42); // 6 dp into the right padding: room for the zoom of the last column
+        panelLp.leftMargin = dp(SIDE - 16); // the first poster lines up with the logo
+        panelLp.topMargin = dp(TOP_H);
+        panelLp.rightMargin = dp(SIDE - 16);
         root.addView(mPanel, panelLp);
 
         // hosted fragments (settings, channel lists, errors)
@@ -290,8 +293,8 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
         mHost.setId(View.generateViewId());
         mHost.setVisibility(View.GONE);
         FrameLayout.LayoutParams hostLp = new FrameLayout.LayoutParams(-1, -1);
-        hostLp.leftMargin = dp(168);
-        hostLp.topMargin = dp(HEADER_H - 40);
+        hostLp.leftMargin = dp(SIDE - 16);
+        hostLp.topMargin = dp(TOP_H - 20);
         root.addView(mHost, hostLp);
 
         mProgress = new ProgressBar(ctx);
@@ -301,7 +304,6 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
         }
         mProgress.setVisibility(View.GONE);
         FrameLayout.LayoutParams progressLp = new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.CENTER);
-        progressLp.leftMargin = dp(104);
         root.addView(mProgress, progressLp);
 
         return root;
@@ -329,10 +331,18 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
                     focusContent();
                     return true;
                 case KeyEvent.KEYCODE_DPAD_LEFT:
+                    if (v == mSettingsBtn) {
+                        mSearchBtn.requestFocus();
+                    } else {
+                        View last = lastVisibleTile();
+                        if (last != null) {
+                            last.requestFocus();
+                        }
+                    }
+                    return true;
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
-                    View other = v == mSearchBtn ? mSettingsBtn : mSearchBtn;
-                    if (other.getVisibility() == View.VISIBLE) {
-                        other.requestFocus();
+                    if (v == mSearchBtn && mSettingsBtn.getVisibility() == View.VISIBLE) {
+                        mSettingsBtn.requestFocus();
                     }
                     return true;
                 case KeyEvent.KEYCODE_DPAD_UP:
@@ -376,13 +386,16 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
             return;
         }
         boolean hadFocus = mTileColumn.hasFocus();
-        mTileColumn.removeAllViews();
+        for (View t : mTiles.values()) {
+            mTileColumn.removeView(t);
+        }
         mTiles.clear();
+        int insertAt = 0;
         for (BrowseSection section : mSections) {
             View tile = makeTile(section);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(TILE_W), dp(TILE_H));
-            lp.bottomMargin = dp(12);
-            mTileColumn.addView(tile, lp);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, dp(34));
+            lp.rightMargin = dp(5);
+            mTileColumn.addView(tile, insertAt++, lp);
             tile.setVisibility(isTile(section) ? View.VISIBLE : View.GONE);
             mTiles.put(section.getId(), tile);
         }
@@ -407,54 +420,44 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
         }
     }
 
+    /** A section as a round icon button; the selected one shows its name, the focused one turns white. */
     private View makeTile(BrowseSection section) {
         Context ctx = requireContext();
-        FrameLayout tile = new FrameLayout(ctx);
+        LinearLayout tile = new LinearLayout(ctx);
+        tile.setOrientation(LinearLayout.HORIZONTAL);
+        tile.setGravity(Gravity.CENTER_VERTICAL);
+        tile.setPadding(dp(7), 0, dp(7), 0);
+        tile.setMinimumWidth(dp(34));
         tile.setFocusable(true);
-        tile.setAlpha(0.6f);
-        tile.setBackground(rect(TILE_BG, dp(6)));
-        rounded(tile, dp(6));
+        tile.setBackground(rect(0x1FFFFFFF, dp(18)));
 
-        if (section.getId() == MediaGroup.TYPE_HOME) {
-            tile.setBackground(null);
-            ImageView logo = new ImageView(ctx);
-            logo.setImageResource(R.drawable.rav_logo);
-            logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-            logo.setPadding(0, dp(10), 0, dp(10));
-            tile.addView(logo, new FrameLayout.LayoutParams(-1, -1));
-        } else {
-            LinearLayout box = new LinearLayout(ctx);
-            box.setOrientation(LinearLayout.VERTICAL);
-            box.setGravity(Gravity.CENTER);
-            ImageView icon = new ImageView(ctx);
-            icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            if (section.getResId() > 0) {
-                icon.setImageResource(section.getResId());
-                icon.setColorFilter(Color.WHITE);
-            } else if (section.getIconUrl() != null) {
-                RavPosterPanel.loadImage(icon, section.getIconUrl(), dp(20), dp(20), true);
-            }
-            box.addView(icon, new LinearLayout.LayoutParams(dp(20), dp(20)));
-            TextView label = new TextView(ctx);
-            font(label);
-            label.setText(section.getTitle());
-            label.setTextSize(9);
-            label.setTextColor(Color.WHITE);
-            label.setGravity(Gravity.CENTER);
-            label.setSingleLine(true);
-            label.setEllipsize(TextUtils.TruncateAt.END);
-            label.setPadding(dp(4), dp(2), dp(4), 0);
-            box.addView(label, new LinearLayout.LayoutParams(-1, -2));
-            tile.addView(box, new FrameLayout.LayoutParams(-1, -1));
+        ImageView icon = new ImageView(ctx);
+        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        if (section.getResId() > 0) {
+            icon.setImageResource(section.getResId());
+            icon.setColorFilter(Color.WHITE);
+        } else if (section.getIconUrl() != null) {
+            RavPosterPanel.loadImage(icon, section.getIconUrl(), dp(20), dp(20), true);
         }
+        tile.addView(icon, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        TextView label = new TextView(ctx);
+        font(label);
+        label.setText(section.getTitle());
+        label.setTextSize(10.5f);
+        label.setTextColor(Color.WHITE);
+        label.setSingleLine(true);
+        label.setVisibility(View.GONE);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(-2, -2);
+        labelLp.leftMargin = dp(6);
+        labelLp.rightMargin = dp(3);
+        tile.addView(label, labelLp);
+        tile.setTag(new View[]{icon, label});
 
         int id = section.getId();
         tile.setOnFocusChangeListener((v, has) -> {
-            boolean keep = has || id == mSelectedId; // the active section stays zoomed while you browse it
-            v.animate().scaleX(keep ? TILE_ZOOM : 1f).scaleY(keep ? TILE_ZOOM : 1f).setDuration(160).start();
+            styleTile(v, id == mSelectedId, has);
             if (has) {
                 selectTile(id, 180);
-                centerTile(v);
             }
         });
         tile.setOnClickListener(v -> focusContent());
@@ -467,52 +470,72 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
                 return false;
             }
             switch (code) {
-                case KeyEvent.KEYCODE_DPAD_RIGHT:
+                case KeyEvent.KEYCODE_DPAD_DOWN:
                     focusContent();
                     return true;
-                case KeyEvent.KEYCODE_DPAD_LEFT:
-                    return true;
-                case KeyEvent.KEYCODE_DPAD_DOWN:
-                    moveTileFocus(v, 1);
-                    return true;
                 case KeyEvent.KEYCODE_DPAD_UP:
+                    return true;
+                case KeyEvent.KEYCODE_DPAD_RIGHT:
+                    if (!moveTileFocus(v, 1)) {
+                        mSearchBtn.requestFocus();
+                    }
+                    return true;
+                case KeyEvent.KEYCODE_DPAD_LEFT:
                     moveTileFocus(v, -1);
                     return true;
             }
             return false;
         });
+        styleTile(tile, false, false);
         return tile;
     }
 
-    /** No wrap: holding up ends on the first tile, holding down on the last. */
-    private void moveTileFocus(View from, int dir) {
+    private void styleTile(View tile, boolean selected, boolean focused) {
+        View[] parts = (View[]) tile.getTag();
+        ImageView icon = (ImageView) parts[0];
+        TextView label = (TextView) parts[1];
+        ((GradientDrawable) tile.getBackground()).setColor(focused ? 0xFFFFFFFF : selected ? 0x40FFFFFF : 0x1FFFFFFF);
+        int ink = focused ? 0xFF101020 : Color.WHITE;
+        if (icon.getDrawable() != null && icon.getColorFilter() != null) {
+            icon.setColorFilter(ink);
+        }
+        label.setTextColor(ink);
+        label.setVisibility(selected || focused ? View.VISIBLE : View.GONE);
+        tile.setAlpha(selected || focused ? 1f : 0.7f);
+    }
+
+    /** No wrap: holding left ends on the first section, holding right goes on to search. */
+    private boolean moveTileFocus(View from, int dir) {
         int i = mTileColumn.indexOfChild(from) + dir;
         while (i >= 0 && i < mTileColumn.getChildCount()) {
             View t = mTileColumn.getChildAt(i);
-            if (t.getVisibility() == View.VISIBLE) {
+            if (t.getVisibility() == View.VISIBLE && mTiles.containsValue(t)) {
                 t.requestFocus();
-                return;
+                return true;
             }
             i += dir;
         }
+        return false;
     }
 
-    private View firstVisibleTile() {
-        for (int i = 0; i < mTileColumn.getChildCount(); i++) {
+    private View lastVisibleTile() {
+        for (int i = mTileColumn.getChildCount() - 1; i >= 0; i--) {
             View t = mTileColumn.getChildAt(i);
-            if (t.getVisibility() == View.VISIBLE) {
+            if (t.getVisibility() == View.VISIBLE && mTiles.containsValue(t)) {
                 return t;
             }
         }
         return null;
     }
 
-    private void centerTile(View v) {
-        v.post(() -> {
-            int max = Math.max(0, mTileColumn.getHeight() - mTileScroll.getHeight());
-            int y = v.getTop() - (mTileScroll.getHeight() - v.getHeight()) / 2;
-            mTileGlide.to(Math.max(0, Math.min(y, max)));
-        });
+    private View firstVisibleTile() {
+        for (int i = 0; i < mTileColumn.getChildCount(); i++) {
+            View t = mTileColumn.getChildAt(i);
+            if (t.getVisibility() == View.VISIBLE && mTiles.containsValue(t)) {
+                return t;
+            }
+        }
+        return null;
     }
 
     private void focusTile() {
@@ -529,11 +552,7 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
         for (Map.Entry<Integer, View> e : mTiles.entrySet()) {
             View v = e.getValue();
             boolean selected = e.getKey() == mSelectedId;
-            v.setAlpha(selected ? 1f : 0.6f);
-            float scale = selected || v.hasFocus() ? TILE_ZOOM : 1f;
-            if (v.getScaleX() != scale) {
-                v.animate().scaleX(scale).scaleY(scale).setDuration(160).start();
-            }
+            styleTile(v, selected, v.hasFocus());
         }
     }
 
@@ -606,6 +625,7 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
 
     private void setMode(int mode) {
         mMode = mode;
+        mPanel.setSplitFirstRow(mSelectedId == MediaGroup.TYPE_HOME && mode == MODE_ROWS ? HOME_FIRST_ROWS : 1);
         mPanel.setMode(mode == MODE_ROWS ? RavPosterPanel.MODE_ROWS
                 : mode == MODE_CHANNELS ? RavPosterPanel.MODE_CHANNELS : RavPosterPanel.MODE_GRID);
         mPanel.setFocusOnContentPending(mFocusOnContentPending);
@@ -896,12 +916,12 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
 
         @Override
         public void onExitLeft() {
-            focusTile();
+            // NOP: nothing left of the posters
         }
 
         @Override
         public void onExitUp() {
-            mSearchBtn.requestFocus();
+            focusTile(); // up from the first row: the section buttons
         }
 
         @Override
@@ -911,15 +931,10 @@ public class RavBrowseFragment extends Fragment implements BrowseView {
         }
     }
 
-    /** ScrollView that never scrolls by itself on focus; we glide it. */
-    private static final class TileScrollView extends ScrollView {
-        TileScrollView(Context context) {
+    /** The section buttons; scrolls sideways to keep the focused one in view. */
+    private static final class CategoryScroll extends android.widget.HorizontalScrollView {
+        CategoryScroll(Context context) {
             super(context);
-        }
-
-        @Override
-        protected int computeScrollDeltaToGetChildRectOnScreen(Rect rect) {
-            return 0;
         }
     }
 }

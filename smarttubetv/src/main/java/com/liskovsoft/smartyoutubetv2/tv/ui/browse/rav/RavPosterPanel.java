@@ -79,7 +79,6 @@ public class RavPosterPanel extends RecyclerView {
     public static final int MODE_CHANNELS = 3;
     private static final int TYPE_ROW = 1;
     private static final int TYPE_GRID = 2;
-    private static final int GRID_COLS = 3;
     private static final int RESTORE_MAX_SIZE = 200;
 
     /** What the panel tells its screen. */
@@ -94,6 +93,26 @@ public class RavPosterPanel extends RecyclerView {
 
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final Callback mPresenter;
+
+    // sizes (dp); compact mode fits 5 posters side by side
+    private int mCardW = RavStyle.CARD_W;
+    private int mCardH = RavStyle.CARD_H;
+    private int mGutter = RavStyle.GUTTER;
+    private int mRowH = RavStyle.ROW_H;
+    private int mEdge = RavStyle.EDGE;
+    private int mGridCols = 3;
+    private float mTitleSize = 12f;
+    private float mMetaSize = 8.5f;
+    private float mBadgeSize = 9f;
+    private int mLabelPad = 12;
+    private float mZoom = CARD_ZOOM;
+    /** Rows mode: the first section is spread over this many rows (1 = a single row). */
+    private int mSplitFirst = 1;
+    /** Compact: scroll only when the focused row would leave the screen (else: the focused row goes to the top). */
+    private boolean mScrollMinimal;
+    private final android.graphics.Paint mGlowPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.RectF mGlowRect = new android.graphics.RectF();
+    private final android.graphics.Rect mTmpRect = new android.graphics.Rect();
     private int mMode = MODE_NONE;
     private final RavGlide mPanelGlide;
     private final PanelAdapter mPanelAdapter;
@@ -115,7 +134,7 @@ public class RavPosterPanel extends RecyclerView {
     public RavPosterPanel(Context context, Callback callback) {
         super(context);
         mPresenter = callback;
-        setLayoutManager(new RavLayoutManager(context, LinearLayoutManager.VERTICAL, dp(ROW_H) * 2));
+        setLayoutManager(new RavLayoutManager(context, LinearLayoutManager.VERTICAL, dp(mRowH) * 2));
         setItemAnimator(null);
         setClipChildren(false);
         setClipToPadding(false);
@@ -136,9 +155,20 @@ public class RavPosterPanel extends RecyclerView {
         mPanelAdapter = new PanelAdapter();
         setAdapter(mPanelAdapter);
         mPanelGlide = new RavGlide(this, false);
+
+        // a very light amber glow around the focused poster, drawn behind the posters
+        setWillNotDraw(false);
+        mGlowPaint.setColor(0x8CFFB46B);
+        mGlowPaint.setMaskFilter(new android.graphics.BlurMaskFilter(dp(8), android.graphics.BlurMaskFilter.Blur.NORMAL));
+        getViewTreeObserver().addOnPreDrawListener(() -> {
+            if (updateGlow()) {
+                invalidate();
+            }
+            return true;
+        });
         addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             // room below the last row, so any row can scroll up to the top
-            int bottom = Math.max(0, (b - t) - dp(16) - dp(ROW_H));
+            int bottom = Math.max(0, (b - t) - dp(16) - dp(mRowH));
             if (getPaddingBottom() != bottom) {
                 post(() -> setPadding(0, dp(16), 0, bottom));
             }
@@ -150,6 +180,30 @@ public class RavPosterPanel extends RecyclerView {
     }
 
     // ------------------------------------------------------------------ public API
+
+    /**
+     * Compact: 5 posters side by side over the given width (dp), a smaller gutter and smaller type.
+     * Call before content arrives.
+     */
+    public void setCompact(int widthDp, int columns) {
+        mGutter = 24;
+        mEdge = 16;
+        mCardW = (widthDp - mEdge - 16 - (columns - 1) * mGutter) / columns;
+        mCardH = Math.round(mCardW * 9f / 16f);
+        mRowH = mCardH + 36; // room above each row for its section title
+        mGridCols = columns;
+        mTitleSize = 10f;
+        mMetaSize = 7.5f;
+        mBadgeSize = 8f;
+        mLabelPad = 8;
+        mZoom = 1.12f; // smaller zoom: neighbours stay clear with the tighter gutter
+        mScrollMinimal = true;
+    }
+
+    /** Rows mode: spread the first section over [rows] rows (the rest stay single rows). */
+    public void setSplitFirstRow(int rows) {
+        mSplitFirst = Math.max(1, rows);
+    }
 
     public int getMode() {
         return mMode;
@@ -244,7 +298,48 @@ public class RavPosterPanel extends RecyclerView {
         if (mMode == MODE_CHANNELS) {
             return mFocusRow == 0 ? mFocusCol : 0;
         }
-        return mMode == MODE_GRID ? mFocusRow * GRID_COLS + mFocusCol : mFocusRow;
+        return mMode == MODE_GRID ? mFocusRow * mGridCols + mFocusCol : mFocusRow;
+    }
+
+    /** @return true when the glow moved */
+    private boolean updateGlow() {
+        View focused = hasFocus() ? findFocus() : null;
+        float l = 0, t = 0, r = 0, b = 0;
+        if (focused != null && focused != this && focused.getWidth() > 0) {
+            mTmpRect.set(0, 0, focused.getWidth(), focused.getHeight());
+            try {
+                offsetDescendantRectToMyCoords(focused, mTmpRect);
+            } catch (IllegalArgumentException e) {
+                mTmpRect.setEmpty(); // not a descendant anymore
+            }
+            if (!mTmpRect.isEmpty()) {
+                // follow the poster's zoom
+                float sx = focused.getScaleX();
+                float sy = focused.getScaleY();
+                float cx = mTmpRect.exactCenterX();
+                float cy = mTmpRect.exactCenterY();
+                float hw = mTmpRect.width() * sx / 2f + dp(1);
+                float hh = mTmpRect.height() * sy / 2f + dp(1);
+                l = cx - hw;
+                t = cy - hh;
+                r = cx + hw;
+                b = cy + hh;
+            }
+        }
+        if (mGlowRect.left == l && mGlowRect.top == t && mGlowRect.right == r && mGlowRect.bottom == b) {
+            return false;
+        }
+        mGlowRect.set(l, t, r, b);
+        return true;
+    }
+
+    @Override
+    public void onDraw(android.graphics.Canvas c) {
+        super.onDraw(c);
+        if (mGlowRect.width() > 0) {
+            float radius = dp(10);
+            c.drawRoundRect(mGlowRect, radius, radius, mGlowPaint);
+        }
     }
 
     @Override
@@ -290,10 +385,21 @@ public class RavPosterPanel extends RecyclerView {
 
         VideoGroupObjectAdapter existing = GridFragmentHelper.findRelatedAdapter(mRowAdapters, group, freeze -> { });
 
-        if (existing == null) {
+        if (existing == null && mSplitFirst > 1 && mRows.isEmpty()) {
+            // the first section (e.g. Recommended) spread over several rows: a tile overview at a glance
+            VideoGroupObjectAdapter adapter = new VideoGroupObjectAdapter(group, (Presenter) null);
+            mRowAdapters.put(group.getId(), adapter);
+            for (int k = 0; k < mSplitFirst; k++) {
+                mRows.add(new RowData(adapter, k == 0 ? group.getTitle() : null, false, mSplitFirst, k));
+            }
+            mPanelAdapter.notifyItemRangeInserted(0, mSplitFirst);
+        } else if (existing == null) {
             RowData row = new RowData(group);
             mRowAdapters.put(group.getId(), row.adapter);
             int pos = group.getPosition();
+            if (pos > 0 && mSplitFirst > 1 && mRows.size() >= mSplitFirst && mRows.get(0).stride > 1) {
+                pos += mSplitFirst - 1; // the first section takes several rows
+            }
             if (pos == -1 || pos > mRows.size()) {
                 mRows.add(row);
                 mPanelAdapter.notifyItemInserted(mRows.size() - 1);
@@ -311,11 +417,10 @@ public class RavPosterPanel extends RecyclerView {
         if (adapter == null) {
             return;
         }
-        for (int i = 0; i < mRows.size(); i++) {
+        for (int i = mRows.size() - 1; i >= 0; i--) {
             if (mRows.get(i).adapter == adapter) {
                 mRows.remove(i);
                 mPanelAdapter.notifyItemRemoved(i);
-                return;
             }
         }
     }
@@ -413,7 +518,7 @@ public class RavPosterPanel extends RecyclerView {
     }
 
     private int gridRows() {
-        return mGridAdapter == null ? 0 : (mGridAdapter.size() + GRID_COLS - 1) / GRID_COLS;
+        return mGridAdapter == null ? 0 : (mGridAdapter.size() + mGridCols - 1) / mGridCols;
     }
 
     private final class GridObserver extends ObjectAdapter.DataObserver {
@@ -432,10 +537,10 @@ public class RavPosterPanel extends RecyclerView {
             int newRows = gridRows();
             int off = gridOffset();
             mGridRowCount = newRows;
-            if (positionStart >= oldRows * GRID_COLS - GRID_COLS && oldRows > 0) {
+            if (positionStart >= oldRows * mGridCols - mGridCols && oldRows > 0) {
                 mPanelAdapter.notifyItemChanged(off + oldRows - 1); // the last row may have been partly filled
             }
-            if (positionStart < (oldRows - 1) * GRID_COLS) {
+            if (positionStart < (oldRows - 1) * mGridCols) {
                 mPanelAdapter.notifyDataSetChanged(); // prepended
                 refocusLater();
             } else if (newRows > oldRows) {
@@ -451,8 +556,8 @@ public class RavPosterPanel extends RecyclerView {
         @Override
         public void onItemRangeChanged(int positionStart, int itemCount) {
             if (mAdapter == mGridAdapter) {
-                mPanelAdapter.notifyItemRangeChanged(gridOffset() + positionStart / GRID_COLS,
-                        (positionStart + itemCount - 1) / GRID_COLS - positionStart / GRID_COLS + 1);
+                mPanelAdapter.notifyItemRangeChanged(gridOffset() + positionStart / mGridCols,
+                        (positionStart + itemCount - 1) / mGridCols - positionStart / mGridCols + 1);
             }
         }
 
@@ -506,12 +611,12 @@ public class RavPosterPanel extends RecyclerView {
             if (mMode == MODE_GRID && mGridAdapter != null) {
                 int idx = mGridAdapter.indexOfAlt(mPendingVideo);
                 if (idx != -1) {
-                    row = idx / GRID_COLS;
-                    col = idx % GRID_COLS;
+                    row = idx / mGridCols;
+                    col = idx % mGridCols;
                 }
             } else if (mMode == MODE_ROWS) {
                 for (int i = 0; i < mRows.size(); i++) {
-                    int idx = mRows.get(i).adapter.indexOfAlt(mPendingVideo);
+                    int idx = mRows.get(i).positionOf(mRows.get(i).adapter.indexOfAlt(mPendingVideo));
                     if (idx != -1) {
                         row = i;
                         col = idx;
@@ -528,8 +633,8 @@ public class RavPosterPanel extends RecyclerView {
             if (mMode == MODE_ROWS && mPendingIndex < mRows.size()) {
                 row = mPendingIndex;
             } else if (mMode == MODE_GRID && mGridAdapter != null && mPendingIndex < mGridAdapter.size()) {
-                row = mPendingIndex / GRID_COLS;
-                col = mPendingIndex % GRID_COLS;
+                row = mPendingIndex / mGridCols;
+                col = mPendingIndex % mGridCols;
             } else {
                 loadMoreForRestore();
                 return;
@@ -548,7 +653,7 @@ public class RavPosterPanel extends RecyclerView {
             int c = col;
             mHandler.post(() -> focusCard(r, c));
         } else {
-            mPanelGlide.to(row * dp(ROW_H));
+            mPanelGlide.to(row * dp(mRowH));
             if (isScrollRow(row)) {
                 slideRow(row, col);
             }
@@ -579,11 +684,11 @@ public class RavPosterPanel extends RecyclerView {
 
     private int rowSize(int row) {
         if (isScrollRow(row)) {
-            return row >= 0 && row < mRows.size() ? mRows.get(row).adapter.size() : 0;
+            return row >= 0 && row < mRows.size() ? mRows.get(row).count() : 0;
         }
         if (mGridAdapter != null) {
             int g = row - gridOffset();
-            return g < 0 ? 0 : Math.max(0, Math.min(GRID_COLS, mGridAdapter.size() - g * GRID_COLS));
+            return g < 0 ? 0 : Math.max(0, Math.min(mGridCols, mGridAdapter.size() - g * mGridCols));
         }
         return 0;
     }
@@ -595,12 +700,33 @@ public class RavPosterPanel extends RecyclerView {
         col = Math.max(0, Math.min(col, rowSize(row) - 1));
         mFocusRow = row;
         mFocusCol = col;
-        // the focused row sits at the top of the panel
-        mPanelGlide.to(row * dp(ROW_H));
+        if (mScrollMinimal) {
+            // scroll only as far as needed to bring the row fully into view
+            int top = row * dp(mRowH);
+            int bottom = top + dp(mRowH);
+            int current = mPanelGlide.getTarget();
+            int visible = getHeight() - getPaddingTop();
+            int target = current;
+            if (top < current) {
+                target = top;
+            } else if (bottom > current + visible) {
+                target = bottom - visible;
+            }
+            mPanelGlide.to(Math.max(0, target));
+        } else {
+            // the focused row sits at the top of the panel; inside the split first section the whole block stays put
+            mPanelGlide.to(inSplitBlock(row) ? 0 : row * dp(mRowH));
+        }
         if (isScrollRow(row)) {
             slideRow(row, col);
         }
         requestCardFocus(row, col, 0);
+    }
+
+    /** The rows that together show the first section (e.g. Recommended over 3 rows). */
+    private boolean inSplitBlock(int row) {
+        return mMode == MODE_ROWS && mSplitFirst > 1 && row >= 0 && row < mSplitFirst && row < mRows.size()
+                && mRows.get(row).stride > 1;
     }
 
     private void requestCardFocus(int row, int col, int attempt) {
@@ -644,14 +770,28 @@ public class RavPosterPanel extends RecyclerView {
             return;
         }
         RowData data = mRows.get(row);
-        int n = data.adapter.size();
-        int slot = dp(CARD_W + GUTTER);
+        int n = data.count();
+        int slot = dp(mCardW + mGutter);
         int width = mPanel.getWidth();
-        int visible = Math.max(1, (width - dp(EDGE) - dp(6) + dp(GUTTER)) / slot); // last card needs no gutter
+        int visible = Math.max(1, (width - dp(mEdge) - dp(6) + dp(mGutter)) / slot); // last card needs no gutter
         int first = Math.max(0, Math.min(col - visible / 2, Math.max(0, n - visible)));
-        int max = Math.max(0, dp(EDGE) + n * slot + dp(GUTTER) - width);
-        data.scrollX = Math.min(first * slot, max);
-        data.first = first;
+        if (inSplitBlock(row)) {
+            // the rows of the split section slide together, so it stays one grid of posters
+            for (int k = 0; k < mSplitFirst && k < mRows.size(); k++) {
+                applySlide(k, first, slot, width, visible);
+            }
+        } else {
+            applySlide(row, first, slot, width, visible);
+        }
+    }
+
+    private void applySlide(int row, int first, int slot, int width, int visible) {
+        RowData data = mRows.get(row);
+        int n = data.count();
+        int f = Math.max(0, Math.min(first, Math.max(0, n - visible)));
+        int max = Math.max(0, dp(mEdge) + n * slot + dp(mGutter) - width);
+        data.scrollX = Math.min(f * slot, max);
+        data.first = f;
         RecyclerView.ViewHolder vh = mPanel.findViewHolderForAdapterPosition(row);
         if (vh instanceof RowHolder && ((RowHolder) vh).data == data) {
             ((RowHolder) vh).glide.to(data.scrollX);
@@ -712,12 +852,13 @@ public class RavPosterPanel extends RecyclerView {
         // load the next page near the end
         if (h.data != null) {
             int size = h.data.adapter.size();
-            if (mFocusCol > size - ViewUtil.ROW_SCROLL_CONTINUE_NUM) {
+            int absolute = h.data.offset + mFocusCol * h.data.stride;
+            if (absolute > size - ViewUtil.ROW_SCROLL_CONTINUE_NUM * h.data.stride) {
                 mPresenter.onScrollEnd((Video) h.data.adapter.get(size - 1));
             }
         } else if (mGridAdapter != null) {
             int size = mGridAdapter.size();
-            if ((mFocusRow - gridOffset()) * GRID_COLS + mFocusCol > size - ViewUtil.GRID_SCROLL_CONTINUE_NUM) {
+            if ((mFocusRow - gridOffset()) * mGridCols + mFocusCol > size - ViewUtil.GRID_SCROLL_CONTINUE_NUM) {
                 mPresenter.onScrollEnd((Video) mGridAdapter.get(size - 1));
             }
         }
@@ -754,37 +895,37 @@ public class RavPosterPanel extends RecyclerView {
         // glass: a faint sheen over the top half
         View sheen = new View(ctx);
         sheen.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0x24FFFFFF, 0x00FFFFFF}));
-        card.addView(sheen, new FrameLayout.LayoutParams(-1, (int) (dp(CARD_H) * 0.5f), Gravity.TOP));
+        card.addView(sheen, new FrameLayout.LayoutParams(-1, (int) (dp(mCardH) * 0.5f), Gravity.TOP));
 
         View shade = new View(ctx);
         shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{Color.TRANSPARENT, 0x8C000000, 0xD9000000, 0xF2000000}));
-        card.addView(shade, new FrameLayout.LayoutParams(-1, (int) (dp(CARD_H) * 0.62f), Gravity.BOTTOM));
+        card.addView(shade, new FrameLayout.LayoutParams(-1, (int) (dp(mCardH) * 0.62f), Gravity.BOTTOM));
 
         LinearLayout labels = new LinearLayout(ctx);
         labels.setOrientation(LinearLayout.VERTICAL);
         TextView title = new TextView(ctx);
         font(title);
-        title.setTextSize(12);
+        title.setTextSize(mTitleSize);
         title.setTextColor(0xD9FFFFFF);
         title.setSingleLine(true);
         title.setEllipsize(TextUtils.TruncateAt.END);
         title.setShadowLayer(dp(4), 0, dp(1), 0xFF000000);
         labels.addView(title, new LinearLayout.LayoutParams(-1, -2));
         TextView meta = new TextView(ctx);
-        meta.setTextSize(8.5f);
+        meta.setTextSize(mMetaSize);
         meta.setTextColor(0x8CFFFFFF);
         meta.setSingleLine(true);
         meta.setEllipsize(TextUtils.TruncateAt.END);
         meta.setPadding(0, dp(1), 0, 0);
         labels.addView(meta, new LinearLayout.LayoutParams(-1, -2));
         FrameLayout.LayoutParams labelsLp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        labelsLp.setMargins(dp(12), 0, dp(12), dp(10));
+        labelsLp.setMargins(dp(mLabelPad), 0, dp(mLabelPad), dp(mLabelPad - 2));
         card.addView(labels, labelsLp);
 
         TextView badge = new TextView(ctx);
         sansMedium(badge);
-        badge.setTextSize(9);
+        badge.setTextSize(mBadgeSize);
         badge.setTextColor(0xE6FFFFFF);
         badge.setPadding(dp(5), dp(1), dp(5), dp(1));
         FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
@@ -813,13 +954,20 @@ public class RavPosterPanel extends RecyclerView {
 
         card.setOnFocusChangeListener((v, has) -> {
             animateWash(h, has ? 0f : 1f);
-            v.animate().scaleX(has ? CARD_ZOOM : 1f).scaleY(has ? CARD_ZOOM : 1f).setDuration(160).start();
+            v.animate().scaleX(has ? mZoom : 1f).scaleY(has ? mZoom : 1f).setDuration(160).start();
             if (Build.VERSION.SDK_INT >= 21) {
                 v.setTranslationZ(has ? 1f : 0f);
             }
             h.title.setTextColor(has ? Color.WHITE : 0xD9FFFFFF);
+            // stay on a poster for a moment and its full title scrolls by
+            mHandler.removeCallbacks(h.startMarquee);
             if (has) {
+                mHandler.postDelayed(h.startMarquee, 1000);
                 onCardFocused(h);
+            } else {
+                h.title.setSelected(false);
+                h.title.setEllipsize(TextUtils.TruncateAt.END);
+                h.title.setLayerType(View.LAYER_TYPE_NONE, null);
             }
         });
         card.setOnClickListener(v -> {
@@ -910,12 +1058,12 @@ public class RavPosterPanel extends RecyclerView {
         h.track.setVisibility(progress ? View.VISIBLE : View.GONE);
         if (progress) {
             float f = Math.max(0.02f, Math.min(1f, video.percentWatched / 100f));
-            h.bar.getLayoutParams().width = (int) (dp(CARD_W) * f);
+            h.bar.getLayoutParams().width = (int) (dp(mCardW) * f);
             h.bar.requestLayout();
         }
-        h.labelsLp.bottomMargin = dp(progress ? 12 : 10);
+        h.labelsLp.bottomMargin = dp(progress ? mLabelPad : mLabelPad - 2);
 
-        loadImage(h.img, video.getCardImageUrl(), dp(CARD_W), dp(CARD_H), false);
+        loadImage(h.img, video.getCardImageUrl(), dp(mCardW), dp(mCardH), false);
     }
 
     static void loadImage(ImageView view, String url, int w, int h, boolean circle) {
@@ -940,41 +1088,91 @@ public class RavPosterPanel extends RecyclerView {
         final String title;
         final CardAdapter cards;
         final boolean channels;
+        /** A row can show every [stride]th item starting at [offset]: one section spread over several rows. */
+        final int stride;
+        final int offset;
         int scrollX;
         int first;
+        private int mLastCount;
 
         RowData(VideoGroup group) {
             this(group, false);
         }
 
         RowData(VideoGroup group, boolean channels) {
+            this(new VideoGroupObjectAdapter(group, (Presenter) null), group.getTitle(), channels, 1, 0);
+        }
+
+        RowData(VideoGroupObjectAdapter adapter, String title, boolean channels, int stride, int offset) {
+            this.adapter = adapter;
+            this.title = title;
             this.channels = channels;
-            adapter = new VideoGroupObjectAdapter(group, (Presenter) null);
-            title = group.getTitle();
+            this.stride = stride;
+            this.offset = offset;
             cards = new CardAdapter(this);
+            mLastCount = count();
             adapter.registerObserver(new ObjectAdapter.DataObserver() {
                 @Override
                 public void onChanged() {
-                    cards.notifyDataSetChanged();
-                    refocusLater();
+                    reset();
                 }
 
                 @Override
                 public void onItemRangeChanged(int positionStart, int itemCount) {
-                    cards.notifyItemRangeChanged(positionStart, itemCount);
+                    if (stride == 1) {
+                        cards.notifyItemRangeChanged(positionStart, itemCount);
+                    } else {
+                        cards.notifyDataSetChanged();
+                    }
                 }
 
                 @Override
                 public void onItemRangeInserted(int positionStart, int itemCount) {
-                    cards.notifyItemRangeInserted(positionStart, itemCount);
+                    int old = mLastCount;
+                    mLastCount = count();
+                    if (stride == 1) {
+                        cards.notifyItemRangeInserted(positionStart, itemCount);
+                    } else if (positionStart >= adapter.size() - itemCount && mLastCount >= old) {
+                        cards.notifyItemRangeInserted(old, mLastCount - old); // appended: no rebind
+                    } else {
+                        reset();
+                    }
                 }
 
                 @Override
                 public void onItemRangeRemoved(int positionStart, int itemCount) {
-                    cards.notifyItemRangeRemoved(positionStart, itemCount);
+                    if (stride == 1) {
+                        mLastCount = count();
+                        cards.notifyItemRangeRemoved(positionStart, itemCount);
+                        refocusLater();
+                    } else {
+                        reset();
+                    }
+                }
+
+                private void reset() {
+                    mLastCount = count();
+                    cards.notifyDataSetChanged();
                     refocusLater();
                 }
             });
+        }
+
+        int count() {
+            int size = adapter.size();
+            return stride == 1 ? size : Math.max(0, (size - offset + stride - 1) / stride);
+        }
+
+        Video item(int position) {
+            return (Video) adapter.get(offset + position * stride);
+        }
+
+        /** Position in this row of an item of the adapter, or -1. */
+        int positionOf(int adapterIndex) {
+            if (adapterIndex < offset || (adapterIndex - offset) % stride != 0) {
+                return -1;
+            }
+            return (adapterIndex - offset) / stride;
         }
     }
 
@@ -993,6 +1191,23 @@ public class RavPosterPanel extends RecyclerView {
         int gridCol = -1;
         float wash = 1f;
         ValueAnimator washAnim;
+        final Runnable startMarquee = this::startMarquee;
+
+        private void startMarquee() {
+            if (itemView.hasFocus()) {
+                // smooth scrolling text: no hinting (glyph widths snapped per pixel make it wobble), subpixel
+                // positioning, and its own layer so it moves as one image
+                title.getPaint().setSubpixelText(true);
+                if (Build.VERSION.SDK_INT >= 29) {
+                    title.getPaint().setHinting(android.graphics.Paint.HINTING_OFF);
+                }
+                title.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+                title.setEllipsize(TextUtils.TruncateAt.MARQUEE);
+                title.setMarqueeRepeatLimit(-1);
+                title.setHorizontalFadingEdgeEnabled(true);
+                title.setSelected(true);
+            }
+        }
 
         CardHolder(View card, ImageView img, TextView title, TextView meta, TextView badge, View track, View bar,
                    FrameLayout.LayoutParams labelsLp) {
@@ -1026,8 +1241,8 @@ public class RavPosterPanel extends RecyclerView {
         @Override
         public CardHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             CardHolder h = makeCard(parent.getContext(), mData.channels);
-            RecyclerView.LayoutParams lp = new RecyclerView.LayoutParams(dp(CARD_W), dp(CARD_H));
-            lp.rightMargin = dp(GUTTER);
+            RecyclerView.LayoutParams lp = new RecyclerView.LayoutParams(dp(mCardW), dp(mCardH));
+            lp.rightMargin = dp(mGutter);
             h.itemView.setLayoutParams(lp);
             return h;
         }
@@ -1035,12 +1250,12 @@ public class RavPosterPanel extends RecyclerView {
         @Override
         public void onBindViewHolder(@NonNull CardHolder holder, int position) {
             holder.data = mData;
-            bindCard(holder, (Video) mData.adapter.get(position));
+            bindCard(holder, mData.item(position));
         }
 
         @Override
         public int getItemCount() {
-            return mData.adapter.size();
+            return mData.count();
         }
     }
 
@@ -1056,7 +1271,7 @@ public class RavPosterPanel extends RecyclerView {
         tv.setIncludeFontPadding(false);
         tv.setSingleLine(true);
         // sit just above where a zoomed poster reaches, so the title never moves and is never covered
-        tv.setPadding(dp(EDGE + 2), 0, 0, (int) (dp(CARD_H) * (CARD_ZOOM - 1f) / 2f) + dp(1));
+        tv.setPadding(dp(mEdge + 2), 0, 0, (int) (dp(mCardH) * (mZoom - 1f) / 2f) + dp(1));
         return tv;
     }
 
@@ -1103,7 +1318,7 @@ public class RavPosterPanel extends RecyclerView {
             FrameLayout root = new FrameLayout(ctx);
             root.setClipChildren(false);
             root.setClipToPadding(false);
-            root.setLayoutParams(new RecyclerView.LayoutParams(-1, dp(ROW_H)));
+            root.setLayoutParams(new RecyclerView.LayoutParams(-1, dp(mRowH)));
             TextView header = sectionHeader(ctx);
 
             if (viewType == TYPE_GRID) {
@@ -1111,31 +1326,31 @@ public class RavPosterPanel extends RecyclerView {
                 line.setOrientation(LinearLayout.HORIZONTAL);
                 line.setClipChildren(false);
                 line.setClipToPadding(false);
-                line.setPadding(dp(EDGE), dp(GUTTER / 2f), 0, dp(GUTTER / 2f));
-                CardHolder[] cards = new CardHolder[GRID_COLS];
-                for (int i = 0; i < GRID_COLS; i++) {
+                line.setPadding(dp(mEdge), dp((mRowH - mCardH) / 2f), 0, dp((mRowH - mCardH) / 2f));
+                CardHolder[] cards = new CardHolder[mGridCols];
+                for (int i = 0; i < mGridCols; i++) {
                     cards[i] = makeCard(ctx);
                     cards[i].gridCol = i;
-                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(CARD_W), dp(CARD_H));
-                    lp.rightMargin = dp(GUTTER);
+                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(mCardW), dp(mCardH));
+                    lp.rightMargin = dp(mGutter);
                     line.addView(cards[i].itemView, lp);
                 }
                 root.addView(line, new FrameLayout.LayoutParams(-1, -1));
-                root.addView(header, new FrameLayout.LayoutParams(-1, dp(GUTTER / 2f), Gravity.TOP));
+                root.addView(header, new FrameLayout.LayoutParams(-1, dp((mRowH - mCardH) / 2f), Gravity.TOP));
                 return new GridHolder(root, cards, header);
             }
 
             RecyclerView list = new RecyclerView(ctx);
-            list.setLayoutManager(new RavLayoutManager(ctx, LinearLayoutManager.HORIZONTAL, dp(CARD_W + GUTTER) * 2));
+            list.setLayoutManager(new RavLayoutManager(ctx, LinearLayoutManager.HORIZONTAL, dp(mCardW + mGutter) * 2));
             list.setItemAnimator(null);
             list.setClipChildren(false);
             list.setClipToPadding(false);
             list.setFocusable(false);
             list.setOverScrollMode(View.OVER_SCROLL_NEVER);
             list.setHorizontalScrollBarEnabled(false);
-            list.setPadding(dp(EDGE), dp(GUTTER / 2f), dp(GUTTER), dp(GUTTER / 2f));
+            list.setPadding(dp(mEdge), dp((mRowH - mCardH) / 2f), dp(mGutter), dp((mRowH - mCardH) / 2f));
             root.addView(list, new FrameLayout.LayoutParams(-1, -1));
-            root.addView(header, new FrameLayout.LayoutParams(-1, dp(GUTTER / 2f), Gravity.TOP));
+            root.addView(header, new FrameLayout.LayoutParams(-1, dp((mRowH - mCardH) / 2f), Gravity.TOP));
             return new RowHolder(root, list, header);
         }
 
@@ -1148,7 +1363,7 @@ public class RavPosterPanel extends RecyclerView {
                 if (h.data != data) {
                     h.data = data;
                     h.list.setAdapter(data.cards);
-                    int slot = dp(CARD_W + GUTTER);
+                    int slot = dp(mCardW + mGutter);
                     ((LinearLayoutManager) h.list.getLayoutManager())
                             .scrollToPositionWithOffset(data.scrollX / slot, -(data.scrollX % slot));
                     h.glide.reset(data.scrollX);
@@ -1156,8 +1371,8 @@ public class RavPosterPanel extends RecyclerView {
             } else if (holder instanceof GridHolder) {
                 GridHolder h = (GridHolder) holder;
                 setHeader(h.header, null);
-                for (int i = 0; i < GRID_COLS; i++) {
-                    int idx = (position - gridOffset()) * GRID_COLS + i;
+                for (int i = 0; i < mGridCols; i++) {
+                    int idx = (position - gridOffset()) * mGridCols + i;
                     CardHolder card = h.cards[i];
                     card.gridRow = position;
                     bindCard(card, mGridAdapter != null && idx < mGridAdapter.size() ? (Video) mGridAdapter.get(idx) : null);
