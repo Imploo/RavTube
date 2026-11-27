@@ -63,6 +63,7 @@ public class RavPlayerOverlay extends FrameLayout {
     private static final int BTN_CC = 4;
     private static final int BTN_QUALITY = 5; // only visible while the quality is lowered
     private static final int WARNING_YELLOW = 0xFFFFC83D;
+    private static final float SCRIM_MAX = 0.96f;
 
     /** What the overlay needs from the player. Implemented by PlaybackFragment. */
     public interface Host {
@@ -158,15 +159,14 @@ public class RavPlayerOverlay extends FrameLayout {
 
         // scrims
         // one scrim for both steps: a fade followed by a solid tail, sliding up with the control layer
-        int fadeH = (int) (dp(540) * 0.68f);
+        int fadeH = (int) (dp(540) * 0.9f);
         mScrim = new LinearLayout(context);
         mScrim.setOrientation(LinearLayout.VERTICAL);
         View fade = new View(context);
-        fade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0x00000000, 0xA6000000, 0xE0000000, 0xF5000000}));
+        fade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, scrimRamp(SCRIM_MAX)));
         mScrim.addView(fade, new LinearLayout.LayoutParams(-1, fadeH));
         View solid = new View(context);
-        solid.setBackgroundColor(0xF5000000);
+        solid.setBackgroundColor((int) (SCRIM_MAX * 255) << 24);
         mScrim.addView(solid, new LinearLayout.LayoutParams(-1, dp(540)));
         mScrim.setAlpha(0f);
         LayoutParams scrimLp = new LayoutParams(-1, fadeH + dp(540), Gravity.TOP);
@@ -751,6 +751,18 @@ public class RavPlayerOverlay extends FrameLayout {
         long m = s % 3600 / 60;
         long sec = s % 60;
         return h > 0 ? String.format(Locale.US, "%d:%02d:%02d", h, m, sec) : String.format(Locale.US, "%d:%02d", m, sec);
+    }
+
+    /** Smoothstep alpha ramp: no hard edge at the top and no kink anywhere along the fade. */
+    private static int[] scrimRamp(float max) {
+        int n = 24;
+        int[] colors = new int[n];
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) (n - 1);
+            float a = max * t * t * (3f - 2f * t);
+            colors[i] = Math.round(a * 255) << 24;
+        }
+        return colors;
     }
 
     // ------------------------------------------------------------------ modes + rendering
